@@ -50,6 +50,7 @@ export class Minimap {
     const cv = this.canvas;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const w = cv.clientWidth, h = cv.clientHeight;
+    if (w < 16 || h < 16) return; // 非表示のときは描かない
     if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
       cv.width = Math.round(w * dpr);
       cv.height = Math.round(h * dpr);

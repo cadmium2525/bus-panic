@@ -120,7 +120,23 @@ export class Game {
     this._lastRender = 0;
     this._loop = this._loop.bind(this);
     this.cam = { pos: new THREE.Vector3(), look: new THREE.Vector3(), shake: 0, fov: 60 };
-    requestAnimationFrame(this._loop);
+    // 撮影モード（PV 用）：自動では進めず、外から 1 コマずつ進める
+    if (debug.capture) {
+      this.captureLog = [];
+      const play = audio.play.bind(audio);
+      audio.play = (key, opts = {}) => {
+        this.captureLog.push({ key, frame: this.captureFrame || 0, volume: opts.volume ?? 1, delay: opts.delay || 0 });
+        return play(key, opts);
+      };
+      window.__step = (n = 1, dt = 1 / 30) => {
+        for (let i = 0; i < n; i++) {
+          this.captureFrame = (this.captureFrame || 0) + 1;
+          if (debug.advanceClock) debug.advanceClock(dt * 1000);
+          this.frame(dt);
+        }
+        return this.captureFrame;
+      };
+    } else requestAnimationFrame(this._loop);
   }
 
   // ---------------- 設定 ----------------
@@ -1055,6 +1071,41 @@ export class Game {
       return;
     }
     const fx = Math.sin(pose.h), fz = Math.cos(pose.h);
+    // 撮影用のカメラ指定（yaw: 0 = 真後ろ、90 = 右横、180 = 正面。spin で旋回）
+    if (this.camOverride && this.state !== 'result') {
+      const o = this.camOverride;
+      o.t = (o.t || 0) + dt;
+      const yaw = pose.h + Math.PI - ((o.yaw + (o.spin || 0) * o.t) * Math.PI) / 180;
+      let want, look;
+      if (o.pos) {
+        // 固定カメラ（look がなければバスを見る）
+        want = new THREE.Vector3(o.pos[0] + (o.drift ? o.drift[0] * o.t : 0), o.pos[1], o.pos[2] + (o.drift ? o.drift[1] * o.t : 0));
+        look = o.look ? new THREE.Vector3(...o.look) : new THREE.Vector3(pose.x, 1.6, pose.z);
+      } else {
+        want = new THREE.Vector3(pose.x + Math.sin(yaw) * o.dist, o.height, pose.z + Math.cos(yaw) * o.dist);
+        look = new THREE.Vector3(pose.x + fx * (o.lookAhead || 0), o.lookY ?? 1.6, pose.z + fz * (o.lookAhead || 0));
+      }
+      if (this._camSnap) {
+        c.pos.copy(want);
+        c.look.copy(look);
+        this._camSnap = false;
+      } else {
+        c.pos.lerp(want, 1 - Math.exp(-dt * (o.follow || 6)));
+        c.look.lerp(look, 1 - Math.exp(-dt * 10));
+      }
+      cam.position.copy(c.pos);
+      if (c.shake > 0) {
+        cam.position.x += (Math.random() - 0.5) * c.shake;
+        cam.position.y += (Math.random() - 0.5) * c.shake;
+        c.shake = Math.max(0, c.shake - dt * 1.6);
+      }
+      cam.lookAt(c.look);
+      if (cam.fov !== (o.fov || 55)) {
+        cam.fov = o.fov || 55;
+        cam.updateProjectionMatrix();
+      }
+      return;
+    }
     let dist = 13.5, height = 6.4;
     if (this.state === 'result') {
       const a = this.time * 0.3;

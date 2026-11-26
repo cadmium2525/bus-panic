@@ -7,6 +7,7 @@ import { Input } from './core/input.js';
 import { Audio } from './core/audio.js';
 import { loadSettings } from './core/storage.js';
 import { createStops } from './game/stops.js';
+import { installVirtualClock } from './core/capture.js';
 
 function webglAvailable() {
   try {
@@ -46,6 +47,8 @@ function boot() {
   }
   preventBrowserGestures();
   const params = new URLSearchParams(location.search);
+  // PV 撮影モード：時計をコマ送りに合わせる
+  const advanceClock = params.has('capture') ? installVirtualClock() : null;
   const settings = loadSettings();
   if (params.get('quality')) settings.quality = params.get('quality');
   const audio = new Audio();
@@ -76,6 +79,8 @@ function boot() {
         timescale: parseFloat(params.get('timescale')) || 0,
         fixedFrame: parseFloat(params.get('fixedframe')) || 0,
         startStop: parseInt(params.get('startstop'), 10) || 0,
+        capture: params.has('capture'),
+        advanceClock,
       },
     });
   } catch (err) {

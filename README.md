@@ -76,6 +76,21 @@ npm run audio -- --only title,coin                          # 一部だけ
 
 遅れているとき・残り時間が少ないときは、走行中の曲に「遅延時の層」（刻む弦・アルペジオ・ブラス・パーカッション）がクロスフェードで重なり、同じ曲のまま盛り上がります。
 
+## PV（紹介動画）の作り方
+
+X 用の PV（16:9・約30秒）は、ゲームの映像を撮影して、自作の動画エディタ「つなぐ」（[cadmium2525/mp4mp3](https://github.com/cadmium2525/mp4mp3) の `editor/`）で組み立てています。
+
+```bash
+npm run build && npx vite preview --port 4173 &   # ゲームを起動
+node pv/capture.cjs              # 見せ場を 1 コマずつ撮影（URL に ?capture を付けたコマ送りモード）→ pv/build/media
+node pv/make.mjs                 # 「つなぐ」のプロジェクト JSON（pv/build/pv.json）を作る
+node ../mp4mp3/editor/tools/render.mjs pv/build/pv.json pv/build/media pv/build/genkai-bus-pv.mp4
+```
+
+- 撮影モードでは、ページ内の時計（タイマー・アニメーション）もゲームのコマ送りに合わせるので、罰金表示や吹き出しも実際の速さで写ります。
+- 撮影中に鳴った効果音の時刻を記録し、PV の効果音をその瞬間に合わせています。
+- BGM はゲームのテーマ曲を PV 用に編曲（衝突の瞬間に曲が始まり、カットは小節の頭）。
+
 ## ローカルで動かす
 
 ```bash
