@@ -45,12 +45,13 @@ export class Passengers {
   }
 
   /** 停留所の待機客を配置 */
-  populate(stops) {
+  populate(stops, counts = null) {
     for (const p of this.people) p.state = 'gone';
     this.byStop.clear();
     for (const s of stops) {
       const list = [];
-      for (let k = 0; k < s.wait; k++) {
+      const n = counts ? counts[s.index] : s.wait;
+      for (let k = 0; k < n; k++) {
         const p = this._alloc();
         if (!p) break;
         const slot = this._slot(s, k);

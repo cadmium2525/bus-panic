@@ -55,7 +55,16 @@ export const ZONES = [
   [22, 43, 36, 53, 'house'],
   [22, 43, 28, 47, 'library'],
   [39, 43, 53, 53, 'station'],
+  // 線路の南側
+  [39, 52, 53, 53, 'house'],
+  [5, 49, 19, 49, 'park'],
+  [5, 52, 19, 53, 'park'],
+  // 東西に走る鉄道（道路と交わるところが踏切）
+  [0, 50, 59, 51, 'rail'],
 ];
+
+// 鉄道：複線の中心（z）。行 50〜51 の帯を通る
+export const RAIL = { rows: [50, 51], tracks: [407.2, 411.4], z0: 401, z1: 415 };
 
 export const PLAZAS = [[41, 43, 51, 46]]; // 限界駅 バスロータリー
 
@@ -137,8 +146,9 @@ export function solidRectForTile(c, r) {
 }
 
 // 4近傍の経路探索（タイル単位）。allowAlley=false で幹線のみ。
-export function shortestPath(from, to, allowAlley = true) {
-  const ok = (t) => (allowAlley ? isDrivableType(t) : isMainType(t));
+export function shortestPath(from, to, allowAlley = true, blocked = null) {
+  const ok0 = (t) => (allowAlley ? isDrivableType(t) : isMainType(t));
+  const ok = blocked ? (t, i) => ok0(t) && !blocked.has(i) : ok0;
   const start = from.r * N + from.c;
   const goal = to.r * N + to.c;
   const dist = new Int32Array(N * N).fill(-1);
@@ -153,7 +163,7 @@ export function shortestPath(from, to, allowAlley = true) {
     for (const [nc, nr] of nb) {
       if (nc < 0 || nr < 0 || nc >= N || nr >= N) continue;
       const ni = nr * N + nc;
-      if (dist[ni] >= 0 || !ok(grid[ni])) continue;
+      if (dist[ni] >= 0 || !ok(grid[ni], ni)) continue;
       dist[ni] = dist[cur] + 1;
       prev[ni] = cur;
       q.push(ni);

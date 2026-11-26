@@ -13,9 +13,10 @@ export function dwellTime(boarding, alighting) {
 }
 
 /** 停留所に到着した時点の乗降結果を確定する */
-export function resolveStop({ initialWaiting, alighting, scheduledSec, arrivalSec, onboard, capacity = RULES.capacity }) {
+export function resolveStop({ initialWaiting, alighting, scheduledSec, arrivalSec, onboard, capacity = RULES.capacity, taken = 0 }) {
   const delay = arrivalSec - scheduledSec;
-  const waiting = remainingPassengers(initialWaiting, delay);
+  const remain = remainingPassengers(initialWaiting, delay);
+  const waiting = Math.max(0, remain - taken); // taken: ライバルに横取りされた人数
   const off = Math.min(alighting, onboard);
   const room = capacity - (onboard - off);
   const board = Math.max(0, Math.min(waiting, room));
@@ -24,7 +25,8 @@ export function resolveStop({ initialWaiting, alighting, scheduledSec, arrivalSe
   return {
     delay,
     waiting,
-    lost: initialWaiting - waiting,
+    lost: initialWaiting - remain,
+    stolen: remain - waiting,
     board,
     off,
     leftBehind: left,
@@ -34,22 +36,53 @@ export function resolveStop({ initialWaiting, alighting, scheduledSec, arrivalSe
   };
 }
 
-/** 総合スコア = 運賃収入 ＋ 定時到着ボーナス ＋ 全停留所制覇ボーナス − 器物破損罰金 − その他ペナルティ */
-export function computeScore({ fare, onTimeBonus, allStops, damage, other }) {
+/**
+ * 総合スコア = 運賃収入 ＋ 定時到着ボーナス（コンボ込み）＋ 運転技術ボーナス（ピタ止め・ライバルに勝つ）
+ *            ＋ チップ ＋ 全停留所制覇ボーナス − 器物破損罰金 − その他ペナルティ
+ */
+export function computeScore({ fare, onTimeBonus, skillBonus = 0, tips = 0, allStops, damage, other }) {
   const allStopsBonus = allStops ? RULES.allStopsBonus : 0;
   return {
     fare,
     onTimeBonus,
+    skillBonus,
+    tips,
     allStopsBonus,
     damage,
     other,
-    total: fare + onTimeBonus + allStopsBonus - damage - other,
+    total: fare + onTimeBonus + skillBonus + tips + allStopsBonus - damage - other,
   };
 }
 
-export function rankFor(total) {
-  for (const r of RANKS) if (total >= r.min) return r;
-  return RANKS[RANKS.length - 1];
+export function rankFor(total, ranks = RANKS) {
+  for (const r of ranks) if (total >= r.min) return r;
+  return ranks[ranks.length - 1];
+}
+
+/** 定時コンボ n 回目（1 始まり）の定時ボーナス */
+export function comboBonus(n, mult = 1) {
+  if (n <= 0) return 0;
+  return Math.min(RULES.comboMaxBonus, RULES.onTimeBonus + RULES.comboStep * (n - 1)) * mult;
+}
+
+/**
+ * ピタ止めの判定。along: 停止位置（標柱）からの前後のずれ(m)、gap: 縁石とのすき間(m)
+ * 戻り値 { grade: 'perfect' | 'great' | 'good' | 'miss', bonus, label }
+ */
+export function pitaGrade(along, gap, mult = 1) {
+  const a = Math.abs(along), g = Math.max(0, gap);
+  if (a <= 0.6 && g <= 0.9) return { grade: 'perfect', bonus: RULES.pita.perfect * mult, label: 'ピタッ！' };
+  if (a <= 1.5 && g <= 1.6) return { grade: 'great', bonus: RULES.pita.great * mult, label: 'ナイス停車' };
+  if (a <= 3 && g <= 2.6) return { grade: 'good', bonus: RULES.pita.good * mult, label: 'まあまあ' };
+  return { grade: 'miss', bonus: 0, label: '停止位置ずれ' };
+}
+
+/** 暴走モードのコンボ倍率（連続して壊した数） */
+export function rampageMultiplier(chain) {
+  if (chain >= 12) return 3;
+  if (chain >= 7) return 2;
+  if (chain >= 3) return 1.5;
+  return 1;
 }
 
 /** 物体単位で一度だけ罰金を計上する台帳 */

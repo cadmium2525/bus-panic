@@ -112,10 +112,60 @@ export const SFX = {
   record: { preset: 'tettere' },
   achievement: { preset: 'hirameki' },
   shutter: { preset: 'shutter' },
+
+  // ---- ピタ止め・コンボ・ハプニング ----
+  pita: {
+    // ピタッ！（短いクリック＋明るいベル）
+    layers: [
+      { src: 'noise', filter: { type: 'bp', freq: 4200, q: 3 }, amp: { a: 0.0003, d: 0.02 }, gain: -6 },
+      { at: 0.03, src: 'modal', freq: 1568, modes: [[1, 0.5, 1], [2.76, 0.2, 0.3], [5.4, 0.1, 0.12]], amp: { a: 0.001, h: 0.35, d: 0.3 }, gain: -3 },
+      { at: 0.1, src: 'modal', freq: 2093, modes: [[1, 0.7, 1], [2.76, 0.25, 0.3], [5.4, 0.12, 0.12]], amp: { a: 0.001, h: 0.5, d: 0.4 }, gain: -2 },
+    ],
+    fx: [HP(400), { type: 'delay', time: 0.08, feedback: 0.25, mix: 0.12 }, { type: 'reverb', size: 0.6, decay: 0.9, mix: 0.15 }],
+  },
+  combo: { preset: 'pirorin', fx: [HP(250)] }, // 定時コンボ・ライバルに勝った
+  tip: { preset: 'chiin', fx: [HP(220)] }, // チップ（レジのチーン）
+  rival: { preset: 'deden', fx: [HP(200), SHELF(-5, 250)] }, // ライバル出現
 };
+
+/** 踏切の警報音 1 打（カーン） */
+const bellHit = (at, freq, gain) => [
+  { at, src: 'modal', freq, modes: [[1, 0.32, 1], [2.32, 0.2, 0.55], [3.9, 0.12, 0.35], [5.85, 0.07, 0.2]], amp: { a: 0.0006, h: 0.2, d: 0.25 }, gain },
+  { at, src: 'noise', filter: { type: 'bp', freq: freq * 3.2, q: 2 }, amp: { a: 0.0003, d: 0.015 }, gain: gain - 10 },
+];
 
 /** 繰り返し再生するループ音（WAV で書き出し、継ぎ目はクロスフェードで処理） */
 export const LOOPS = {
+  crossing: {
+    // カン、カン、カン…（1 秒に 2 打。少し音程の違う 2 つの鐘を交互に）
+    loopSec: 1.0,
+    def: {
+      length: 1.4,
+      normalize: -4,
+      layers: [...bellHit(0, 880, -2), ...bellHit(0.5, 830, -3)],
+      fx: [HP(450), { type: 'reverb', size: 0.5, decay: 0.5, mix: 0.1 }],
+      fadeOut: 0,
+    },
+  },
+  train: {
+    // 電車の通過音（ゴーッという走行音と、タタン・タタンというレールの継ぎ目）
+    loopSec: 1.6,
+    def: {
+      length: 2.0,
+      normalize: -5,
+      layers: [
+        { src: 'noise', width: 0.6, len: 2.0, filter: { type: 'bp', freq: 520, q: 0.7 }, amp: [[0, 1], [2.0, 1]], gain: -6 },
+        { src: 'noise', width: 0.5, len: 2.0, filter: { type: 'bp', freq: 1700, q: 1 }, amp: [[0, 1], [2.0, 1]], gain: -16 },
+        ...[0, 0.13, 0.8, 0.93].flatMap((t, k) => [
+          { at: t, src: 'noise', filter: { type: 'bp', freq: 1100, q: 1.6 }, amp: { a: 0.0005, d: 0.05 }, gain: -3 - (k % 2) * 2 },
+          { at: t, src: 'sine', freq: [[0, 260], [0.04, 180, 'exp']], amp: { a: 0.001, d: 0.05 }, gain: -12 },
+        ]),
+        { src: 'sine', freq: 2400, len: 2.0, vibrato: { rate: 3, depth: 0.4 }, amp: [[0, 1], [2.0, 1]], gain: -32 },
+      ],
+      fx: [HP(160), SHELF(-6, 220), { type: 'eq', bands: [{ type: 'peak', freq: 900, gain: 3, q: 0.8 }] }],
+      fadeOut: 0,
+    },
+  },
   engine: {
     loopSec: 2.0, // 55Hz × 2 秒 = 110 周期でちょうど一周
     def: {

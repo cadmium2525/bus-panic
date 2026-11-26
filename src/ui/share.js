@@ -31,7 +31,10 @@ export function resultImage(r) {
   g.fillText('限界バス運行！', 60, 156);
   g.font = `700 26px ${JP}`;
   g.fillStyle = 'rgba(255,255,255,0.8)';
-  g.fillText(r.reason === 'clear' ? (r.allStopsBonus ? '全停留所制覇！ 終点到着' : '終点到着') : '時間切れ… 途中終了', 62, 200);
+  let sub = r.reason === 'clear' ? (r.allStopsBonus ? '全停留所制覇！ 終点到着' : '終点到着') : '時間切れ… 途中終了';
+  if (r.mode === 'rampage') sub = '🦖 暴走モード';
+  else if (r.daily) sub = `📅 日替わり ${r.daily.key.slice(5).replace('-', '/')}（${r.daily.picks.map((p) => p.name).join('＋')}）｜${sub}`;
+  g.fillText(sub, 62, 200);
 
   // ランク
   const rx = 70, ry = 240;
@@ -49,17 +52,20 @@ export function resultImage(r) {
 
   g.fillStyle = 'rgba(255,255,255,0.75)';
   g.font = `700 26px ${JP}`;
-  g.fillText('総合スコア', 280, 280);
+  g.fillText(r.mode === 'rampage' ? '破壊点' : '総合スコア', 280, 280);
   g.fillStyle = '#ffd23f';
   g.font = `900 84px ${JP}`;
   g.fillText(`${r.total.toLocaleString('ja-JP')}点`, 276, 362);
   g.fillStyle = '#ffffff';
   g.font = `700 24px ${JP}`;
   const onTime = r.stops.filter((s) => s.delay != null && s.delay <= 0).length;
-  const lines = [
-    `運賃 ${formatYen(r.fare)}　定時 ${onTime}/${r.stops.length}`,
-    `罰金 ${formatYen(-(r.damage + r.other))}　ぶつけた物 ${r.counts.cone + r.counts.sign + r.counts.guardrail + r.counts.car}個`,
-  ];
+  const hits = r.counts.cone + r.counts.sign + r.counts.guardrail + r.counts.car;
+  const lines = r.mode === 'rampage'
+    ? [`壊した数 ${r.rampage.destroyed}個　最大 ${r.rampage.maxChain} コンボ`, `最高速度 ${r.maxSpeedKmh}km/h`]
+    : [
+        `運賃 ${formatYen(r.fare)}　定時 ${onTime}/${r.stops.length}　最大 ${r.maxCombo} コンボ`,
+        `ピタッ！ ${r.pita.perfect}回　罰金 ${formatYen(-(r.damage + r.other))}　ぶつけた物 ${hits}個`,
+      ];
   lines.forEach((t, i) => g.fillText(t, 280, 404 + i * 34));
   g.fillStyle = 'rgba(255,255,255,0.55)';
   g.font = `500 18px ${JP}`;
@@ -119,7 +125,8 @@ export async function shareResult(r) {
   const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
   if (!blob) return 'error';
   const file = new File([blob], 'genkai-bus-result.png', { type: 'image/png' });
-  const text = `限界バス運行！ ランク${r.rank}・${r.total.toLocaleString('ja-JP')}点 #限界バス運行`;
+  const mode = r.mode === 'rampage' ? '暴走モード ' : r.daily ? `日替わり${r.daily.key.slice(5).replace('-', '/')} ` : '';
+  const text = `限界バス運行！ ${mode}ランク${r.rank}・${r.total.toLocaleString('ja-JP')}点 #限界バス運行`;
   try {
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       await navigator.share({ files: [file], text });

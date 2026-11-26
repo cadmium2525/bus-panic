@@ -25,10 +25,18 @@
         <div class="next-row"><span id="hud-waiting">待ち客 -人</span><span class="dist"><span class="arrow" id="hud-arrow">▲</span><span id="hud-dist">-</span></span></div>
         <div class="wait-icons" id="hud-wait-icons"></div>
         <div class="leave hidden" id="hud-leave"></div>
+        <div class="missions" id="hud-missions"></div>
+      </div>
+      <div class="hud-tl panel rampage-panel hidden" id="hud-rampage">
+        <div class="next-head"><span class="badge danger">暴走モード</span><span class="next-label">好きなだけ壊せ！</span></div>
+        <div class="rp-points" id="hud-rp-points">0</div>
+        <div class="rp-row"><span id="hud-rp-chain">コンボ —</span><span id="hud-rp-count">破壊 0</span></div>
+        <div class="rp-meter"><i id="hud-rp-meter"></i></div>
       </div>
       <div class="hud-tc">
         <div class="clock" id="hud-clock">8:00:00</div>
         <div class="remain" id="hud-remain">残り -:--</div>
+        <div class="mode-chip hidden" id="hud-mode"></div>
       </div>
       <div class="hud-tr">
         <div class="tr-buttons">
@@ -79,7 +87,11 @@
         <p class="tagline">〜遅延上等、罰金覚悟の路線バス〜</p>
         <p class="concept">急げば儲かる、暴れれば赤字。</p>
         <div class="menu">
-          <button class="btn primary" id="btn-start">出発進行！</button>
+          <button class="btn primary" id="btn-start">出発進行！<small>通常運行</small></button>
+          <div class="mode-row">
+            <button class="btn mode daily" id="btn-daily"><b>📅 日替わりチャレンジ</b><small id="daily-desc">今日の条件</small></button>
+            <button class="btn mode rampage" id="btn-rampage"><b>🦖 暴走モード</b><small id="rampage-desc">2分間ひたすら壊す</small></button>
+          </div>
           <button class="btn" id="btn-howto">遊び方</button>
           <button class="btn" id="btn-achievements">実績 <span id="ach-count"></span></button>
           <button class="btn" id="btn-settings">設定</button>
@@ -102,7 +114,10 @@
           <li>路地は近道。でも障害物だらけ。<b>安全な大通りか、危険な近道か</b>は自分次第。</li>
           <li>制限時間内に終点へ。終点に早めに入って3秒停車すると、残りの停留所を通過して運行終了できます。</li>
           <li>ブレーキは長く踏むほど強くなります。高速から思いきり踏むと<b>急ブレーキ</b>で乗客に怒られます。</li>
-          <li>自己ベストの走りは<b>ゴースト</b>として次の運行に現れます。<b>実績</b>は 16 種類。</li>
+          <li><b>ピタ止め</b>：中扉が標柱の横に来るよう、白い枠にぴったり止めるとボーナス。<b>定時コンボ</b>が続くほど定時ボーナスが増えます。</li>
+          <li><b>ハプニング</b>：工事の通行止め（地図の ✕）、時間内に送り届けるとチップをくれる<b>急ぎの客</b>、客を横取りに来る<b>ライバルのバス</b>、カンカン鳴る<b>踏切</b>（突破すると ¥2,000）。</li>
+          <li><b>日替わりチャレンジ</b>は毎日条件が変わり、全員同じ条件で遊べます。<b>暴走モード</b>は 2 分間、壊せば壊すほど高得点（連続で壊すと倍率アップ）。</li>
+          <li>自己ベストの走りは<b>ゴースト</b>として次の運行に現れます。<b>実績</b>は 22 種類。</li>
         </ol>
         <table class="price">
           <tr><th>コーン・植木鉢</th><td>−¥200</td></tr>

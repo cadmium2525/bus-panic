@@ -61,7 +61,11 @@ export const AUDIO = {
     "applause": "audio/sfx_applause.mp3",
     "record": "audio/sfx_record.mp3",
     "achievement": "audio/sfx_achievement.mp3",
-    "shutter": "audio/sfx_shutter.mp3"
+    "shutter": "audio/sfx_shutter.mp3",
+    "pita": "audio/sfx_pita.mp3",
+    "combo": "audio/sfx_combo.mp3",
+    "tip": "audio/sfx_tip.mp3",
+    "rival": "audio/sfx_rival.mp3"
   },
   "loops": {
     "engine": {
@@ -71,6 +75,14 @@ export const AUDIO = {
     "skid": {
       "file": "audio/loop_skid.wav",
       "loop": 1
+    },
+    "crossing": {
+      "file": "audio/loop_crossing.wav",
+      "loop": 1
+    },
+    "train": {
+      "file": "audio/loop_train.wav",
+      "loop": 1.6
     }
   }
 };

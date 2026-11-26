@@ -178,10 +178,22 @@ export class Traffic {
     return { type: 'bez', p0, c, p1, len, turn: true };
   }
 
+  /** 通行止めの区間（ノードの組）。車はそこへ入らない */
+  setClosed(pairs) {
+    this.closed = new Set(pairs.map(([a, b]) => this._edgeKey(a, b)));
+  }
+  _edgeKey(a, b) {
+    return a.id < b.id ? `${a.id}-${b.id}` : `${b.id}-${a.id}`;
+  }
+  _open(a, b) {
+    return !this.closed || !this.closed.has(this._edgeKey(a, b));
+  }
+
   _plan(car) {
     // 現在の行き先ノード car.to から次を選ぶ
     const b = car.to;
-    let opts = b.nb.filter((n) => n !== car.from);
+    let opts = b.nb.filter((n) => n !== car.from && this._open(b, n));
+    if (!opts.length) opts = b.nb.filter((n) => this._open(b, n));
     if (!opts.length) opts = b.nb;
     const next = opts[Math.floor(Math.random() * opts.length)];
     const prevLine = this._lineFor(car.from, b);
@@ -199,6 +211,7 @@ export class Traffic {
       const a = this.nodes[Math.floor(Math.random() * this.nodes.length)];
       if (!a.nb.length) continue;
       const b = a.nb[Math.floor(Math.random() * a.nb.length)];
+      if (!this._open(a, b)) continue;
       const line = this._lineFor(a, b);
       const d = Math.random() * line.len;
       const x = line.p0.x + line.d.x * d, z = line.p0.z + line.d.z * d;
@@ -281,10 +294,11 @@ export class Traffic {
       if (o === car || o.sink > 0.5) continue;
       test(o.x, o.z, o.spec.len / 2, o.spec.wid / 2);
     }
-    if (bus) {
+    for (const b of [bus, ...(this.extraBuses || [])]) {
+      if (!b || b.hidden) continue;
       // バスは長いので3点で判定
-      const bfx = Math.sin(bus.h), bfz = Math.cos(bus.h);
-      for (const k of [-4, 0, 4]) if (test(bus.x + bfx * k, bus.z + bfz * k, 1.5, 1.3)) byBus = true;
+      const bfx = Math.sin(b.h), bfz = Math.cos(b.h);
+      for (const k of [-4, 0, 4]) if (test(b.x + bfx * k, b.z + bfz * k, 1.5, 1.3)) byBus = b === bus || byBus;
     }
     return { gap, byBus };
   }
@@ -303,6 +317,15 @@ export class Traffic {
         }
         const { gap, byBus } = this._gapAhead(car, bus);
         if (gap < 14) target = Math.min(target, Math.max(0, (gap - 3) * 1.1));
+        // 踏切が鳴っていたら手前で止まる
+        let atCrossing = false;
+        if (this.railway) {
+          const d = this.railway.shouldStop(car.x, car.z, car.h) - car.spec.len / 2;
+          if (d < 18) {
+            target = Math.min(target, Math.max(0, (d - 0.5) * 1.2));
+            atCrossing = true;
+          }
+        }
         if (gap < 3.2) target = 0;
         if (target < 0.5 && byBus) {
           car.wait += dt;
@@ -312,7 +335,7 @@ export class Traffic {
           }
         } else if (target > 1) car.wait = 0;
         // 長時間詰まったら少しずつ前進（すり抜け防止のためバス相手は除く）
-        if (target < 0.5 && !byBus) {
+        if (target < 0.5 && !byBus && !atCrossing) {
           car.wait += dt;
           if (car.wait > 6) target = 2;
         }

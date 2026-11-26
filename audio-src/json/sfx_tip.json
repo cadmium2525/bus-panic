@@ -1,0 +1,15 @@
+{
+ "preset": "chiin",
+ "fx": [
+  {
+   "type": "eq",
+   "bands": [
+    {
+     "type": "hp",
+     "freq": 220,
+     "slope": 24
+    }
+   ]
+  }
+ ]
+}

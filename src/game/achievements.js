@@ -18,6 +18,12 @@ export const ACHIEVEMENTS = [
   { id: 'cars', icon: '💥', name: '渋滞の元凶', desc: '1 回の運行で他の車に 5 回ぶつかる' },
   { id: 'destroyer', icon: '😈', name: '破壊神', desc: '1 回の運行で罰金 ¥30,000 以上' },
   { id: 'drift', icon: '🌀', name: 'バスでドリフト', desc: 'サイドブレーキで 3 秒以上横滑りする' },
+  { id: 'combo10', icon: '🔥', name: '定時コンボ 10', desc: '10 停留所つづけて定時に到着する' },
+  { id: 'pitamaster', icon: '📏', name: 'ピタ止め職人', desc: '1 回の運行で「ピタッ！」停車を 6 回きめる' },
+  { id: 'rival', icon: '🏁', name: 'ライバル撃破', desc: 'ギリギリ交通より先に停留所へ着く' },
+  { id: 'tipking', icon: '💰', name: 'チップ長者', desc: '1 回の運行で急ぎのお客さんを 3 人間に合わせる' },
+  { id: 'daily', icon: '📅', name: '日替わり完走', desc: '日替わりチャレンジで終点にたどり着く' },
+  { id: 'rampage', icon: '🦖', name: '怪獣バス', desc: '暴走モードで 100,000 点以上' },
 ];
 
 function read() {
@@ -53,6 +59,7 @@ export function achievementById(id) {
 export function achievementsForResult(r) {
   const out = [];
   const clear = r.reason === 'clear';
+  if (r.mode === 'rampage') return r.total >= 100000 ? ['rampage'] : [];
   if (clear) out.push('first');
   if (clear && r.allStopsBonus > 0) out.push('allstops');
   if (clear && r.stops.every((s) => s.status === 'done' && s.delay != null && s.delay <= 0)) out.push('ontime');

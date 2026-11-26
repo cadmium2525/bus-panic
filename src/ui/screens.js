@@ -4,6 +4,7 @@ import { PENALTY } from '../config.js';
 import { loadBest, submitBest, saveSettings } from '../core/storage.js';
 import { ACHIEVEMENTS, loadAchievements } from '../game/achievements.js';
 import { shareResult } from './share.js';
+import { dailyChallenge } from '../game/modes.js';
 
 const $ = (id) => document.getElementById(id);
 const SCREENS = ['title', 'howto', 'settings', 'pause', 'result', 'achievements'];
@@ -45,7 +46,9 @@ export class Screens {
   }
 
   _bind() {
-    this._click('btn-start', () => this.game.startRun(), 'ui_ok');
+    this._click('btn-start', () => this.game.startRun('normal'), 'ui_ok');
+    this._click('btn-daily', () => this.game.startRun('daily'), 'ui_ok');
+    this._click('btn-rampage', () => this.game.startRun('rampage'), 'ui_ok');
     this._click('btn-achievements', () => {
       this.backTo = 'title';
       this._fillAchievements();
@@ -197,6 +200,12 @@ export class Screens {
   refreshBest() {
     const b = loadBest();
     $('title-best').textContent = b ? `自己ベスト ${b.total.toLocaleString('ja-JP')}点（ランク${b.rank}）` : '';
+    const d = dailyChallenge();
+    const db = loadBest('daily', d.key);
+    $('daily-desc').textContent = d.picks.map((p) => `${p.icon}${p.name}`).join('＋') + (db ? `／今日のベスト ${db.total.toLocaleString('ja-JP')}` : '');
+    $('btn-daily').title = d.picks.map((p) => `${p.name}：${p.desc}`).join('\n');
+    const rb = loadBest('rampage');
+    $('rampage-desc').textContent = rb ? `ベスト ${rb.total.toLocaleString('ja-JP')}点` : '2分間ひたすら壊す';
     const got = Object.keys(loadAchievements()).length;
     $('ach-count').textContent = `${got}/${ACHIEVEMENTS.length}`;
   }
@@ -213,8 +222,10 @@ export class Screens {
   showResult(r) {
     this.lastResult = r;
     $('btn-share').textContent = '結果を画像でシェア';
-    const isNew = submitBest({ total: r.total, rank: r.rank, stopsServed: r.stopsServed, damage: r.damage });
-    const best = loadBest();
+    const day = r.daily ? r.daily.key : null;
+    const isNew = submitBest({ total: r.total, rank: r.rank, stopsServed: r.stopsServed, damage: r.damage }, r.mode, day);
+    const best = loadBest(r.mode, day);
+    const rampage = r.mode === 'rampage';
     const rankEl = $('res-rank');
     rankEl.textContent = r.rank;
     rankEl.className = 'rank hide r-' + r.rank;
@@ -248,7 +259,12 @@ export class Screens {
       unl.innerHTML = '🏆 実績解除：' + r.unlocked.map((x) => `${x.icon} ${x.name}`).join('　');
       unl.classList.remove('hidden');
     } else unl.classList.add('hidden');
-    $('res-title').textContent = r.reason === 'clear' ? (r.allStopsBonus ? '全停留所制覇！ 終点到着' : '終点到着（一部通過）') : '時間切れ… 途中終了';
+    let title = r.reason === 'clear' ? (r.allStopsBonus ? '全停留所制覇！ 終点到着' : '終点到着（一部通過）') : '時間切れ… 途中終了';
+    if (rampage) title = '暴走モード 終了';
+    else if (r.daily) title = `日替わり ${r.daily.key.slice(5).replace('-', '/')}｜${title}`;
+    $('res-title').textContent = title;
+    $('res-total').previousElementSibling.textContent = rampage ? '破壊点' : '総合スコア';
+    $('btn-retry').textContent = rampage ? 'もう一度暴れる' : r.daily ? '日替わりにもう一度挑む' : 'もう一度運行する';
     $('res-comment').textContent = r.comment;
     totalEl.textContent = '0';
     const bestEl = $('res-best');
@@ -256,16 +272,38 @@ export class Screens {
     bestEl.classList.toggle('new', isNew);
 
     const row = (label, v, cls = '') => `<tr class="${cls}"><td>${label}</td><td>${v}</td></tr>`;
+    const c = r.counts, d = r.damageByKind;
+    $('res-stops').closest('details').classList.toggle('hidden', rampage);
+    if (rampage) {
+      const rp = r.rampage;
+      $('res-breakdown').innerHTML =
+        '<caption>暴走の記録</caption>' +
+        row('壊した数', `${rp.destroyed}個`, 'plus') +
+        row('最大コンボ', `${rp.maxChain}連続`, 'plus') +
+        row('最高速度', `${r.maxSpeedKmh}km/h`, 'plus') +
+        row('破壊点', `${r.total.toLocaleString('ja-JP')}点`, 'total');
+      const crow = (label, n) => `<tr><td>${label}</td><td>${n}</td><td></td></tr>`;
+      $('res-damage').innerHTML =
+        '<caption>壊したもの</caption>' +
+        crow(PENALTY.cone.label, `${c.cone}個`) +
+        crow(PENALTY.sign.label, `${c.sign}個`) +
+        crow(PENALTY.guardrail.label, `${c.guardrail}本`) +
+        crow(PENALTY.car.label, `${c.car}台`);
+      this.refreshBest();
+      this.showScreen('result');
+      return;
+    }
     $('res-breakdown').innerHTML =
       '<caption>スコア内訳</caption>' +
       row('運賃収入', '+' + formatYen(r.fare), 'plus') +
-      row('定時到着ボーナス', '+' + formatYen(r.onTimeBonus), 'plus') +
+      row(`定時ボーナス（最大 ${r.maxCombo} コンボ）`, '+' + formatYen(r.onTimeBonus), 'plus') +
+      row(`運転技術（ピタッ！${r.pita.perfect}回・ライバル${r.rival.wins}勝）`, '+' + formatYen(r.skillBonus), 'plus') +
+      row(`急ぎ客のチップ（${r.hurry.done}/${r.hurry.total}人）`, '+' + formatYen(r.tips), 'plus') +
       row('全停留所制覇ボーナス', r.allStopsBonus ? '+' + formatYen(r.allStopsBonus) : '¥0', 'plus') +
       row('器物破損罰金', formatYen(-r.damage), 'minus') +
       row('その他ペナルティ', formatYen(-r.other), 'minus') +
       row('合計', `${r.total.toLocaleString('ja-JP')}点`, 'total');
 
-    const c = r.counts, d = r.damageByKind;
     const drow = (label, n, amount) => `<tr><td>${label}</td><td>${n}個</td><td class="minus">${formatYen(-amount)}</td></tr>`;
     $('res-damage').innerHTML =
       '<caption>破損・事故</caption>' +
@@ -275,15 +313,19 @@ export class Screens {
       drow(PENALTY.car.label, c.car, d.car) +
       `<tr><td>激突で乗客転倒</td><td>${c.impact}回</td><td class="minus">${formatYen(-c.impact * 500)}</td></tr>` +
       `<tr><td>路面へ復帰</td><td>${c.reset}回</td><td class="minus">${formatYen(-c.reset * 1000)}</td></tr>` +
-      `<tr><td>急ブレーキ</td><td>${c.brake || 0}回</td><td class="minus">${formatYen(-(c.brake || 0) * 300)}</td></tr>`;
+      `<tr><td>急ブレーキ</td><td>${c.brake || 0}回</td><td class="minus">${formatYen(-(c.brake || 0) * 300)}</td></tr>` +
+      `<tr><td>踏切無視</td><td>${c.crossing || 0}回</td><td class="minus">${formatYen(-(r.crossingFine || 0))}</td></tr>`;
 
-    let html = '<tr><th>#</th><th>停留所</th><th>定刻</th><th>到着</th><th>遅延</th><th>乗車</th></tr>';
+    const PITA = { perfect: 'ピタッ！', great: 'ナイス', good: 'まあまあ', miss: '—' };
+    let html = '<tr><th>#</th><th>停留所</th><th>定刻</th><th>到着</th><th>遅延</th><th>停車</th><th>乗車</th></tr>';
     r.stops.forEach((s, i) => {
       const skipped = s.status !== 'done';
       const delay = s.delay == null ? '—' : s.delay <= 0 ? `定時(${Math.round(s.delay)}秒)` : `+${Math.round(s.delay)}秒`;
       const cls = s.delay == null ? '' : s.delay <= 0 ? 'ok' : 'late';
-      const board = s.terminal ? '降車' : skipped ? (s.status === 'skipped' ? '通過' : '未到着') : `${s.board}人${s.lost ? `（${s.lost}人帰宅）` : ''}`;
-      html += `<tr class="${skipped ? 'skipped' : ''}"><td>${i + 1}</td><td>${s.name}</td><td>${formatClock(s.scheduled)}</td><td>${s.arrival != null ? formatClock(s.arrival) : '—'}</td><td class="${cls}">${delay}</td><td>${board}</td></tr>`;
+      const extra = [s.lost ? `${s.lost}人帰宅` : '', s.stolen ? `${s.stolen}人横取り` : ''].filter(Boolean).join('・');
+      const board = s.terminal ? '降車' : skipped ? (s.status === 'skipped' ? '通過' : '未到着') : `${s.board}人${extra ? `（${extra}）` : ''}`;
+      const pita = s.pita ? PITA[s.pita] : '—';
+      html += `<tr class="${skipped ? 'skipped' : ''}"><td>${i + 1}</td><td>${s.name}</td><td>${formatClock(s.scheduled)}</td><td>${s.arrival != null ? formatClock(s.arrival) : '—'}</td><td class="${cls}">${delay}</td><td class="${s.pita === 'perfect' ? 'ok' : ''}">${pita}</td><td>${board}</td></tr>`;
     });
     $('res-stops').innerHTML = html;
     this.refreshBest();

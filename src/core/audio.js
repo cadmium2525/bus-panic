@@ -170,8 +170,7 @@ export class Audio {
     this._ducked = on ? 0.35 : 1;
     if (this.bgmBus) this.bgmBus.gain.setTargetAtTime(this.bgmVolume * this._ducked, this.ctx.currentTime, 0.15);
     if (on) {
-      this.setLoopGain('engine', 0);
-      this.setLoopGain('skid', 0);
+      for (const k of ['engine', 'skid', 'crossing', 'train']) this.setLoopGain(k, 0);
     }
   }
 
@@ -313,6 +312,15 @@ export class Audio {
   startEngine() {
     this.startLoop('engine');
     this.startLoop('skid');
+    this.startLoop('crossing');
+    this.startLoop('train');
+  }
+  /** 踏切の警報音と電車の音（距離 m で小さくなる。電車は近づくと音程が少し上がる） */
+  updateRail(warnDist, trainDist, approach = 0) {
+    if (!this.loops.crossing) return;
+    const fall = (d, near, far) => (d <= near ? 1 : d >= far ? 0 : Math.pow(1 - (d - near) / (far - near), 1.6));
+    this.setLoopGain('crossing', 0.42 * fall(warnDist, 12, 110));
+    this.setLoopGain('train', 0.55 * fall(trainDist, 10, 140), 1 + Math.max(-0.06, Math.min(0.06, approach * 0.004)));
   }
   updateEngine(speed, throttle, skid = 0) {
     if (!this.loops.engine) this.startEngine();
@@ -321,8 +329,7 @@ export class Audio {
     this.setLoopGain('skid', Math.min(0.5, skid * 0.5), 0.9 + Math.min(0.3, speed / 60));
   }
   stopEngine() {
-    this.stopLoop('engine');
-    this.stopLoop('skid');
+    for (const k of ['engine', 'skid', 'crossing', 'train']) this.stopLoop(k);
   }
 
   // ---------------- 車内アナウンス（音声合成・任意） ----------------

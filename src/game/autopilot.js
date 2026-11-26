@@ -17,11 +17,11 @@ export class Autopilot {
   _plan(bus, stop) {
     const from = { c: Math.floor(bus.x / TILE), r: Math.floor(bus.z / TILE) };
     const to = { c: stop.c, r: stop.r };
-    const p = shortestPath(from, to, this.alleys);
+    const p = (this.blocked && shortestPath(from, to, this.alleys, this.blocked)) || shortestPath(from, to, this.alleys);
     if (!p) return;
     this.path = p.path.map((t) => tileCenter(t.c, t.r));
-    // 最後は停留所ゾーン中心
-    this.path.push({ x: stop.zone.cx, z: stop.zone.cz });
+    // 最後はピタ止めの位置（なければゾーン中心）
+    this.path.push(stop.target ? { x: stop.target.x, z: stop.target.z } : { x: stop.zone.cx, z: stop.zone.cz });
     this.idx = 0;
   }
 
@@ -82,8 +82,14 @@ export class Autopilot {
     const toEnd = Math.hypot(end.x - bus.x, end.z - bus.z);
     let vt = Math.min(this.cruise, Math.sqrt(this.turnSpeed * this.turnSpeed + 2 * this.decel * Math.max(0, distTurn - 6)));
     if (Math.abs(ang) > 0.6) vt = Math.min(vt, 5);
-    vt = Math.min(vt, Math.sqrt(2 * this.decel * Math.max(0, toEnd - 2)) + 0.3);
-    if (inZone(stop, bus.x, bus.z) && toEnd < 6) vt = 0;
+    // ピタ止め位置の手前で 5km/h を切るように減速する
+    vt = Math.min(vt, Math.sqrt(2 * this.decel * Math.max(0, toEnd - 0.5)) + 0.6);
+    if (inZone(stop, bus.x, bus.z) && toEnd < 1.2) vt = 0;
+    // 踏切が鳴っていたら手前で止まる（railway を渡されたときだけ）
+    if (this.railway) {
+      const d = this.railway.shouldStop(bus.x, bus.z, bus.h) - 5.5;
+      if (d < 30) vt = Math.min(vt, Math.max(0, Math.sqrt(2 * this.decel * Math.max(0, d - 0.5)) - 0.4));
+    }
     if (bus.speed < vt - 0.5) out.throttle = true;
     else if (bus.speed > vt + 0.8) out.brake = true;
     if (vt === 0) out.brake = bus.speed > 0.2;

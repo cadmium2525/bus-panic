@@ -1,6 +1,6 @@
 // ゲーム本体: 描画・ループ・状態遷移・停留所処理・スコア
 import * as THREE from 'three';
-import { RULES, PENALTY, QUALITY, PHYSICS_DT, BUS } from '../config.js';
+import { RULES, PENALTY, QUALITY, PHYSICS_DT, BUS, RAMPAGE } from '../config.js';
 import { buildCity } from '../world/city.js';
 import { createSky } from '../world/sky.js';
 import { MeshBuilder } from '../world/meshBuilder.js';
@@ -9,8 +9,11 @@ import { Props } from '../entities/props.js';
 import { Bus } from '../entities/bus.js';
 import { Traffic } from '../entities/traffic.js';
 import { Passengers } from '../entities/passengers.js';
-import { createStops, inZone, START } from './stops.js';
-import { remainingPassengers, resolveStop, dwellTime, computeScore, rankFor, PenaltyLedger, formatClock } from './rules.js';
+import { createStops, inZone, START, stopError } from './stops.js';
+import { remainingPassengers, resolveStop, dwellTime, computeScore, rankFor, PenaltyLedger, formatClock, comboBonus, pitaGrade, rampageMultiplier } from './rules.js';
+import { Railway } from '../entities/railway.js';
+import { planClosures, planHurry, planRivals, Rival, spotBehind } from './happenings.js';
+import { defaultMods, dailyChallenge, seededRandom, MODES } from './modes.js';
 import { SpatialHash } from '../core/collision.js';
 import { TILE, N, T, tileAt, isDrivableType, solidRectForTile, shortestPath, tileCenter, H_ROADS, V_ROADS, ALLEYS } from '../world/map.js';
 import { Autopilot } from './autopilot.js';
@@ -31,6 +34,10 @@ const VOICES = {
   late: ['遅いよ〜', '会社に遅れる！', 'もう歩こうかと…'],
   brake: ['おっとっと', '急ブレーキ！', 'あぶなっ'],
   splash: ['ドボンって…', '川に落ちたぞ'],
+  hurry: ['会社に遅刻しそう！', '急いでください！', '会議に間に合わない！'],
+  thanks: ['助かった！', 'ありがとう運転手さん！', '間に合った！'],
+  pita: ['ピタッと止まった！', 'うまい！', '職人技…'],
+  crossing: ['踏切〜！', '止まって！', '電車来てる！'],
 };
 const pickOne = (a) => a[Math.floor(Math.random() * a.length)];
 
@@ -99,15 +106,22 @@ export class Game {
         if (this.state === 'playing' && Math.hypot(car.x - this.bus.x, car.z - this.bus.z) < 40) this.audio.play('honk', { volume: 0.45 });
       },
     });
-    this.passengers = new Passengers(this.scene, 260);
+    this.passengers = new Passengers(this.scene, 300);
+    this.railway = new Railway(this.scene, this.city.crossings, { period: 34 });
+    this.traffic.railway = this.railway;
+    this.rival = new Rival(this.scene);
+    this.rival.railway = this.railway;
+    this.traffic.extraBuses = [this.rival];
     this._buildStopVisuals();
     this._buildMarker();
+    this._buildHurryMarkers();
 
     this.minimap = minimap;
     const ap = debug.autopilot;
     this.autopilot = ap
       ? new Autopilot(ap.includes('fast') ? { alleys: ap.includes('alley'), cruise: 19.5, turnSpeed: 8.5, decel: 8.5 } : { alleys: ap.includes('alley') })
       : null;
+    if (this.autopilot && !ap.includes('wild')) this.autopilot.railway = this.railway;
 
     this.applyQuality(this.qualityKey);
     this._resetWorld();
@@ -225,6 +239,21 @@ export class Game {
         if (along) fl(zn.cx + k * 2.4 - 0.12, Z0 + 1.2, zn.cx + k * 2.4 + 0.12, Z1 - 1.2);
         else fl(X0 + 1.2, zn.cz + k * 2.4 - 0.12, X1 - 1.2, zn.cz + k * 2.4 + 0.12);
       }
+      // ピタ止めの白枠（ここにバスをぴったり止める）
+      const tg = s.target;
+      const hl = BUS.length / 2 + 0.25, hw = BUS.width / 2 + 0.2, ww = 0.16, white = '#f4f4f4';
+      const wl = (xa, za, xb, zb) => marks.quad([xa, Y + 0.004, zb], [xb, Y + 0.004, zb], [xb, Y + 0.004, za], [xa, Y + 0.004, za], white);
+      const ax2 = Math.abs(s.along.x) > 0.5;
+      const PX0 = tg.x - (ax2 ? hl : hw), PX1 = tg.x + (ax2 ? hl : hw);
+      const PZ0 = tg.z - (ax2 ? hw : hl), PZ1 = tg.z + (ax2 ? hw : hl);
+      // 角だけ描く（L 字 × 4）＋中央の十字
+      const c = 1.6;
+      for (const [cx0, cz0, sx, sz] of [[PX0, PZ0, 1, 1], [PX1, PZ0, -1, 1], [PX0, PZ1, 1, -1], [PX1, PZ1, -1, -1]]) {
+        wl(Math.min(cx0, cx0 + sx * c), Math.min(cz0, cz0 + sz * ww), Math.max(cx0, cx0 + sx * c), Math.max(cz0, cz0 + sz * ww));
+        wl(Math.min(cx0, cx0 + sx * ww), Math.min(cz0, cz0 + sz * c), Math.max(cx0, cx0 + sx * ww), Math.max(cz0, cz0 + sz * c));
+      }
+      if (ax2) wl(tg.x - 0.09, PZ0 + 0.5, tg.x + 0.09, PZ1 - 0.5);
+      else wl(PX0 + 0.5, tg.z - 0.09, PX1 - 0.5, tg.z + 0.09);
     }
     const m1 = new THREE.Mesh(mb.build(), new THREE.MeshLambertMaterial({ vertexColors: true }));
     m1.castShadow = true;
@@ -283,25 +312,82 @@ export class Game {
     this.bus.reset(START.x, START.z, START.heading);
     this.traffic.spawnAll({ x: START.x, z: START.z, r: 60 });
     this.passengers.populate(this.stops);
+    this.rival.stop();
     this.run = null;
     this._setMarker(null);
+    if (this.hurryMarks) for (const m of this.hurryMarks) m.visible = false;
   }
 
-  startRun() {
+  // 急ぎの客がいる停留所の目印
+  _buildHurryMarkers() {
+    const tex = labelTexture(['急ぎの客', '早く運んで！'], { accent: '#ff8a3d', bg: 'rgba(120,30,10,0.85)' });
+    this.hurryMarks = this.stops.map((s) => {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+      sp.scale.set(4.4, 1.4, 1);
+      sp.position.set(s.pole.x, 4.2, s.pole.z);
+      sp.visible = false;
+      this.scene.add(sp);
+      return sp;
+    });
+  }
+
+  _updateHurryMarkers() {
+    const run = this.run;
+    this.hurryMarks.forEach((m, i) => {
+      m.visible = !!run && run.hurry.some((h) => h.from === i && h.state === 'waiting');
+    });
+  }
+
+  startRun(mode = this.lastMode || 'normal') {
     this.audio.unlock();
-    // やり直し時は壊れた小物も元に戻す
-    this._rebuildProps();
+    this.mode = mode;
+    this.lastMode = mode;
+    const daily = mode === 'daily' ? dailyChallenge() : null;
+    const mods = daily ? daily.mods : defaultMods();
+    if (mode === 'rampage') Object.assign(mods, { closures: 0, hurry: 0, rivals: 0 });
+    const seed = daily ? daily.seed : this.debug.seed || (Math.random() * 4294967296) >>> 0;
+    const rnd = seededRandom(seed);
+    // ハプニングの準備（工事の通行止めは小物として置く）
+    const closures = planClosures(this.traffic.nodes, this.stops, START, rnd, mods.closures);
+    const extra = closures.flatMap((c) => c.spawns);
+    this._rebuildProps(extra);
+    this.traffic.setClosed(closures.map((c) => [c.a, c.b]));
     this._resetWorld();
+    this.railway.reset();
+    this.railway.setPeriod(mods.trainPeriod);
+    this.bus.tuning = { brake: mods.brakeMult, speed: mods.speedMult, accel: mods.accelMult };
+    const detour = this._applySchedule(new Set(closures.flatMap((c) => c.seg.tiles)));
     const lastStop = this.stops[this.stops.length - 1];
+    const rampage = mode === 'rampage';
     this.run = {
       t: 0,
-      stops: this.stops.map((s) => ({ status: 'pending', arrival: null, result: null, boarded: 0, dwell: 0, elapsed: 0, shown: s.wait })),
+      mode,
+      mods,
+      daily,
+      stops: this.stops.map((s) => {
+        const base = rampage ? 0 : s.terminal ? 0 : Math.round(s.wait * mods.waitMult);
+        return { status: 'pending', arrival: null, result: null, boarded: 0, dwell: 0, elapsed: 0, base, shown: base, stolen: 0 };
+      }),
       next: 0,
       onboard: 0,
       fare: 0,
       bonus: 0,
+      combo: 0,
+      maxCombo: 0,
+      skill: 0,
+      tips: 0,
+      pita: { perfect: 0, great: 0, good: 0, miss: 0 },
+      hurry: planHurry(this.stops, rnd, mods.hurry),
+      hurryDone: 0,
+      rivalAt: planRivals(this.stops, rnd, mods.rivals),
+      rivalWins: 0,
+      rivalLosses: 0,
+      closures,
+      blocked: new Set(closures.flatMap((c) => c.seg.tiles)),
+      crossingFines: 0,
+      rampage: rampage ? { points: 0, chain: 0, lastHitT: -99, maxChain: 0, destroyed: 0 } : null,
       ledger: new PenaltyLedger(),
-      limit: lastStop.scheduled + RULES.timeLimitMarginSec,
+      limit: rampage ? RAMPAGE.seconds : lastStop.scheduled + RULES.timeLimitMarginSec,
       impactCd: 0,
       countdown: 3.4,
       lastCount: 4,
@@ -324,32 +410,64 @@ export class Game {
       unlocked: [],
       recorder: new GhostRecorder(),
     };
+    this.passengers.populate(this.stops, this.run.stops.map((x) => x.base));
+    if (this.autopilot) this.autopilot.blocked = this.run.blocked;
+    this.rival.blocked = this.run.blocked;
+    this._updateHurryMarkers();
     this.effects.clear();
-    this.ghost.setData(this.settings.ghost !== false ? loadGhost() : null);
+    this.ghost.setData(mode === 'normal' && this.settings.ghost !== false ? loadGhost() : null);
     this.bus.setOnboard(0, RULES.capacity);
     // デバッグ: 途中の停留所から開始
     const from = this.debug.startStop | 0;
-    if (from > 0 && from < this.stops.length) {
+    if (!rampage && from > 0 && from < this.stops.length) {
       const ps = this.stops[from - 1];
       const hd = { N: Math.PI / 2, S: -Math.PI / 2, E: 0, W: Math.PI }[ps.curb];
       this.bus.reset(ps.zone.cx, ps.zone.cz, hd);
       for (let k = 0; k < from; k++) this.run.stops[k].status = 'done';
       this.run.next = from;
       this.run.t = this.stops[from - 1].scheduled;
-      this._setMarker(this.stops[from]);
     }
     this.state = 'countdown';
     this.hud.show(true);
+    this.hud.setMode(mode, daily);
     this.ui.showScreen(null);
-    if (!(this.debug.startStop > 0)) this._setMarker(this.stops[0]);
+    this._setMarker(rampage ? null : this.stops[this.run.next]);
     this.audio.stopBgm(0.5);
     this.audio.startEngine();
     this.audio.play('count');
-    this.audio.say('ご乗車ありがとうございます。このバスは、げんかいえき行きです。');
+    if (rampage) this.audio.say('暴走モード。2分間、好きなだけ壊してください。');
+    else this.audio.say('ご乗車ありがとうございます。このバスは、げんかいえき行きです。');
+    // 本日の運行情報
+    if (!rampage) {
+      const info = [];
+      if (daily) info.push(`日替わり：${daily.picks.map((p) => p.name).join('＋')}`);
+      if (closures.length) info.push(`工事で通行止め ${closures.length} か所（地図の ✕）${detour > 0 ? `・時刻表を ${detour} 秒延長` : ''}`);
+      if (this.run.hurry.length) info.push(`急ぎの客 ${this.run.hurry.length} 人`);
+      if (this.run.rivalAt.length) info.push('ライバル会社が出没中');
+      setTimeout(() => info.forEach((t, k) => setTimeout(() => this.run && this.hud.toast(t, 'info'), k * 700)), 3600);
+    }
     this._camSnap = true;
   }
 
-  _rebuildProps() {
+  /** 通行止めで遠回りになる区間は、その分だけ時刻表を後ろにずらす（戻り値：延長した秒数） */
+  _applySchedule(blocked) {
+    let prev = { c: START.c, r: START.r };
+    let add = 0;
+    for (const s of this.stops) {
+      if (s.baseScheduled == null) s.baseScheduled = s.scheduled;
+      if (blocked.size) {
+        const to = { c: s.c, r: s.r };
+        const a = shortestPath(prev, to, false);
+        const b = shortestPath(prev, to, false, blocked) || shortestPath(prev, to, true, blocked);
+        if (a && b) add += (Math.max(0, b.tiles - a.tiles) * TILE) / RULES.scheduleSpeed;
+      }
+      s.scheduled = s.baseScheduled + Math.round(add / 5) * 5;
+      prev = { c: s.c, r: s.r };
+    }
+    return Math.round(add / 5) * 5;
+  }
+
+  _rebuildProps(extra = []) {
     // 前回の破損状態をリセット
     for (const m of this.props.meshes) {
       this.scene.remove(m);
@@ -358,11 +476,15 @@ export class Game {
     }
     this.props.material.dispose();
     this.props.atlas.dispose();
-    this._makeProps();
+    this._makeProps(extra);
   }
 
-  _makeProps() {
-    this.props = new Props(this.scene, this.city.spawns, { onHit: (it, t) => this._onPropHit(it, t), shadows: this.q.shadows });
+  _makeProps(extra = []) {
+    // 工事の通行止めなど、その運行だけの小物を足す
+    const spawns = {};
+    for (const [k, v] of Object.entries(this.city.spawns)) spawns[k] = v.slice();
+    for (const e of extra) (spawns[e.type] || (spawns[e.type] = [])).push({ x: e.x, z: e.z, rot: e.rot || 0, variant: 0 });
+    this.props = new Props(this.scene, spawns, { onHit: (it, t) => this._onPropHit(it, t), shadows: this.q.shadows });
     this.props.onSplash = (it) => {
       this.audio.play('splash');
       this.effects.splash(it.x, it.z);
@@ -422,11 +544,21 @@ export class Game {
     const allStops = reason === 'clear' && run.stops.every((s) => s.status === 'done');
     const ledger = run.ledger;
     const damage = ledger.total((it) => ['cone', 'sign', 'guardrail', 'car'].includes(it.kind));
-    const other = ledger.total((it) => ['reset', 'impact', 'brake'].includes(it.kind));
-    const score = computeScore({ fare: run.fare, onTimeBonus: run.bonus, allStops, damage, other });
-    const rank = rankFor(score.total);
+    const other = ledger.total((it) => ['reset', 'impact', 'brake', 'crossing'].includes(it.kind));
+    const score = run.rampage
+      ? { total: run.rampage.points, fare: 0, onTimeBonus: 0, skillBonus: 0, tips: 0, allStopsBonus: 0, damage: 0, other: 0 }
+      : computeScore({ fare: run.fare, onTimeBonus: run.bonus, skillBonus: run.skill, tips: run.tips, allStops, damage, other });
+    const rank = rankFor(score.total, run.rampage ? RAMPAGE.ranks : undefined);
     const result = {
       reason,
+      mode: run.mode,
+      modeLabel: MODES[run.mode].label,
+      daily: run.daily ? { key: run.daily.key, picks: run.daily.picks.map((p) => ({ icon: p.icon, name: p.name })) } : null,
+      rampage: run.rampage ? { ...run.rampage } : null,
+      maxCombo: run.maxCombo,
+      pita: { ...run.pita },
+      hurry: { done: run.hurryDone, total: run.hurry.length },
+      rival: { wins: run.rivalWins, losses: run.rivalLosses },
       ...score,
       rank: rank.rank,
       comment: rank.comment,
@@ -437,7 +569,9 @@ export class Game {
         arrival: run.stops[i].arrival != null ? RULES.startClockSec + run.stops[i].arrival : null,
         delay: run.stops[i].result ? run.stops[i].result.delay : null,
         board: run.stops[i].result ? run.stops[i].result.board : 0,
-        lost: run.stops[i].result ? run.stops[i].result.lost : s.wait,
+        lost: run.stops[i].result ? run.stops[i].result.lost : run.stops[i].base,
+        stolen: run.stops[i].stolen,
+        pita: run.stops[i].pita || null,
         status: run.stops[i].status,
         terminal: !!s.terminal,
       })),
@@ -449,6 +583,7 @@ export class Game {
         impact: ledger.count('impact'),
         reset: ledger.count('reset'),
         brake: ledger.count('brake'),
+        crossing: ledger.count('crossing'),
       },
       damageByKind: {
         cone: ledger.total((it) => it.kind === 'cone'),
@@ -456,23 +591,28 @@ export class Game {
         guardrail: ledger.total((it) => it.kind === 'guardrail'),
         car: ledger.total((it) => it.kind === 'car'),
       },
+      crossingFine: ledger.total((it) => it.kind === 'crossing'),
       time: run.t,
       maxSpeedKmh: Math.round(run.maxSpeed * 3.6),
     };
-    // 自己ベストならゴーストを保存（storage 側でベスト判定する前に比較）
-    const prevBest = loadBest();
+    // 自己ベストならゴーストを保存（通常運行のみ。storage 側でベスト判定する前に比較）
+    const prevBest = loadBest(run.mode, run.daily && run.daily.key);
     result.isBest = !prevBest || result.total > prevBest.total;
-    if (result.isBest && !this.autopilot) run.recorder.save(result.total);
+    if (result.isBest && !this.autopilot && run.mode === 'normal') run.recorder.save(result.total);
+    if (run.rampage && run.rampage.points >= 100000) this._unlock('rampage', false);
+    if (run.mode === 'daily' && reason === 'clear') this._unlock('daily', false);
     // 実績
     for (const id of achievementsForResult(result)) this._unlock(id, false);
     result.unlocked = run.unlocked.map(achievementById).filter(Boolean);
     this.lastResult = result;
-    if (reason === 'clear') {
+    this.rival.stop();
+    if (reason === 'clear' || reason === 'rampage') {
       this.audio.jingle('clear');
-      this.audio.say('終点、げんかいえきです。ご乗車ありがとうございました。');
+      if (reason === 'clear') this.audio.say('終点、げんかいえきです。ご乗車ありがとうございました。');
       this.effects.confetti(this.bus.x, 8, this.bus.z, 70);
     } else this.audio.jingle('timeout');
-    this.hud.big(reason === 'clear' ? '終点到着！' : '時間切れ…', reason === 'clear' ? 'おつかれさまでした' : '運行打ち切り', 2.2, reason === 'clear' ? 'good' : 'bad');
+    if (reason === 'rampage') this.hud.big('そこまで！', `破壊点 ${run.rampage.points.toLocaleString()}`, 2.2, 'go');
+    else this.hud.big(reason === 'clear' ? '終点到着！' : '時間切れ…', reason === 'clear' ? 'おつかれさまでした' : '運行打ち切り', 2.2, reason === 'clear' ? 'good' : 'bad');
     setTimeout(() => {
       if (this.state === 'result' && this.lastResult === result) {
         this.hud.show(false);
@@ -488,8 +628,13 @@ export class Game {
     this.effects.hitProp(it.type, it.x, it.y, it.z, this.bus.vx * 0.5, this.bus.vz * 0.5);
     if (!run || this.state !== 'playing' || it.noCharge) return;
     const p = PENALTY[it.kind.cls];
-    if (run.ledger.charge(it.id, it.kind.cls, p.amount, it.kind.label, run.t)) {
-      this._floatWorld(it.x, 1.5, it.z, `−¥${p.amount.toLocaleString()} ${it.kind.label}`, 'fine');
+    if (run.rampage) {
+      if (run.ledger.charge(it.id, it.kind.cls, p.amount, it.kind.label, run.t)) this._rampageHit(p.amount, it.kind.label, it.x, it.z);
+      return;
+    }
+    const amount = p.amount * run.mods.fineMult;
+    if (run.ledger.charge(it.id, it.kind.cls, amount, it.kind.label, run.t)) {
+      this._floatWorld(it.x, 1.5, it.z, `−¥${amount.toLocaleString()} ${it.kind.label}`, 'fine');
       if (it.kind.cls === 'guardrail') {
         this.cam.shake = Math.max(this.cam.shake, 0.35);
         this._voice('rail');
@@ -515,9 +660,14 @@ export class Game {
     this._voice('car');
     car.gen = (car.gen || 0) + 1;
     const id = `${car.id}#${car.gen}`;
-    if (run.ledger.charge(id, 'car', PENALTY.car.amount, PENALTY.car.label, run.t)) {
-      this._floatWorld(car.x, 2, car.z, `−¥${PENALTY.car.amount.toLocaleString()} 他車に衝突！`, 'fine big');
-      this.hud.toast('他車に衝突！ 罰金 ¥3,000', 'bad');
+    if (run.rampage) {
+      if (run.ledger.charge(id, 'car', PENALTY.car.amount, PENALTY.car.label, run.t)) this._rampageHit(PENALTY.car.amount, '他車', car.x, car.z);
+      return;
+    }
+    const amount = PENALTY.car.amount * run.mods.fineMult;
+    if (run.ledger.charge(id, 'car', amount, PENALTY.car.label, run.t)) {
+      this._floatWorld(car.x, 2, car.z, `−¥${amount.toLocaleString()} 他車に衝突！`, 'fine big');
+      this.hud.toast(`他車に衝突！ 罰金 ¥${amount.toLocaleString()}`, 'bad');
     }
   }
 
@@ -647,7 +797,8 @@ export class Game {
     let input = { throttle: false, brake: false, steer: 0, handbrake: false };
     if (playing) {
       if (this.autopilot) {
-        const target = run.stops[run.next] ? this.stops[run.next] : this.stops[this.stops.length - 1];
+        // 暴走モードでは停留所を順にめぐって街を走り回る
+        const target = run.rampage ? this.stops[(1 + Math.floor(run.t / 14)) % this.stops.length] : run.stops[run.next] ? this.stops[run.next] : this.stops[this.stops.length - 1];
         input = this.autopilot.drive(this.bus, target, dt);
       } else input = this.input.drive();
       // 乗降中はドアが開いているので発車できない
@@ -656,20 +807,31 @@ export class Game {
       input.hold = true;
     }
 
+    this.railway.update(dt);
+    const trainBoxes = this.railway.boxes();
+    const rivalOn = run && this.rival.state !== 'off';
     const env = {
       staticHash: this.staticHash,
-      cars: this.traffic.cars,
+      cars: rivalOn ? [...this.traffic.cars, this.rival.proxy] : this.traffic.cars,
       props: this.props,
+      boxes: trainBoxes,
       t: run ? run.t : 0,
       onCarHit: (car, bus, hit) => {
         if (!playing) return;
-        this.traffic.handleBusHit(car, bus, hit, run.t);
+        if (car.isRival) this._onRivalBump(hit);
+        else this.traffic.handleBusHit(car, bus, hit, run.t);
       },
+      onBoxHit: (b) => playing && this._onTrainHit(b),
     };
     this.bus.lastImpactJ = 0;
     const res = this.bus.step(dt, input, env);
     this.traffic.update(dt, this.bus, this.props);
     this.props.update(dt);
+    // ライバルのバス（他車・電車とはぶつかるが、罰金はなし）
+    if (rivalOn && playing) {
+      const ev = this.rival.step(dt, { staticHash: this.staticHash, cars: this.traffic.cars, boxes: trainBoxes, t: run.t, onCarHit: () => {} }, this.props);
+      if (ev === 'arrived') this._onRivalArrive();
+    }
 
     if (this.state === 'countdown') {
       run.countdown -= dt;
@@ -679,11 +841,13 @@ export class Game {
         if (n > 0) {
           this.hud.big(String(n), '発車準備', 0.9, 'count');
         } else {
-          this.hud.big('発車オーライ！', `${run.next + 1}番 ${this.stops[run.next].name} へ`, 1.4, 'go');
+          if (run.rampage) this.hud.big('暴走開始！', '壊すほど高得点。連続で壊すと倍率アップ', 1.6, 'go');
+          else this.hud.big('発車オーライ！', `${run.next + 1}番 ${this.stops[run.next].name} へ`, 1.4, 'go');
           this.audio.play('go', { volume: 0.8 });
           this.audio.playBgm('drive', { fade: 1.2 });
           this.state = 'playing';
           this._hint('start');
+          if (run.closures.length) setTimeout(() => this.run === run && this._hint('closure'), 9000);
         }
       }
       return;
@@ -695,6 +859,7 @@ export class Game {
     const bus = this.bus;
     const skidding = (bus.slip > 2.6 && bus.speed > 4) || (bus.decel > 9.5 && bus.speed > 5) || (bus.handbrake && bus.speed > 4);
     this.audio.updateEngine(bus.speed, input.throttle, skidding ? Math.min(1, bus.speed / 12) : 0);
+    this.audio.updateRail(this.railway.nearestWarn(bus.x, bus.z), this.railway.nearestTrain(bus.x, bus.z));
     run.recorder.sample(dt, bus.x, bus.z, bus.h);
 
     // 衝撃で乗客転倒
@@ -722,9 +887,142 @@ export class Game {
     }
 
     this._updateDrivingFx(dt, input, skidding);
-    this._updateStops(dt);
+    this._updateCrossing(dt);
+    if (run.rampage) this._updateRampage(dt);
+    else {
+      this._updateStops(dt);
+      this._updateHurry();
+    }
 
-    if (run.t >= run.limit && !run.finished) this._finish('timeout');
+    if (run.t >= run.limit && !run.finished) this._finish(run.rampage ? 'rampage' : 'timeout');
+  }
+
+  // ---------------- 踏切 ----------------
+  _updateCrossing() {
+    const run = this.run;
+    const bus = this.bus;
+    const cr = this.railway.crossingAt(bus.x, bus.z);
+    if (cr && cr.warn && cr.gate > 0.25 && bus.speed > 1 && !cr.violated) {
+      cr.violated = true;
+      cr.broken = true;
+      this.effects.chips_(cr.x, 1, bus.z, 10, ['#ffd400', '#111111']);
+      this.audio.play('sign', { volume: 0.9 });
+      if (run.rampage) {
+        this._rampageHit(1500, '遮断機', cr.x, bus.z);
+      } else {
+        const amt = RULES.crossingPenalty * run.mods.fineMult;
+        run.ledger.chargeEvent('crossing', amt, '踏切無視', run.t);
+        run.crossingFines++;
+        this.hud.toast(`踏切無視！ 遮断機を突破 −¥${amt.toLocaleString()}`, 'bad');
+        this._floatWorld(bus.x, 3, bus.z, `−¥${amt.toLocaleString()} 踏切無視`, 'fine big');
+        this._voice('crossing', 1, true);
+      }
+    }
+    // 鳴っている踏切に近づいたらヒント
+    if (this.railway.nearestWarn(bus.x, bus.z) < 45) this._hint('crossing');
+  }
+
+  _onTrainHit(b) {
+    const run = this.run;
+    if (this._trainCd > run.t) return;
+    this._trainCd = run.t + 2;
+    this.cam.shake = Math.max(this.cam.shake, 0.9);
+    this.audio.play('car', { volume: 0.9 });
+    this.effects.sparks_(this.bus.x, 1.5, this.bus.z, 30, { speed: 10 });
+    this.slowmo = 0.4;
+    if (run.rampage) this._rampageHit(5000, '電車と接触', this.bus.x, this.bus.z);
+    else {
+      this.hud.toast('電車と接触！ 踏切では止まって！', 'bad');
+      if (run.onboard > 0) {
+        run.ledger.chargeEvent('impact', RULES.impactPenalty, '乗客転倒', run.t);
+        this.audio.play('fall', { volume: 0.8 });
+      }
+    }
+  }
+
+  // ---------------- ライバル ----------------
+  _spawnRival(fromStop) {
+    const run = this.run;
+    const targetIdx = run.next + 1;
+    const target = this.stops[targetIdx];
+    if (!target || target.terminal || run.stops[targetIdx].status !== 'pending') return;
+    const spot = spotBehind(this.bus, 34);
+    if (!spot) return;
+    this.rival.start(spot.x, spot.z, spot.h, target);
+    this.rival.targetIdx = targetIdx;
+    run.rivalTarget = targetIdx;
+    this.audio.play('rival', { volume: 0.8 });
+    this.hud.big('ライバル出現！', `ギリギリ交通が「${target.name}」の客を狙っている`, 2.2, 'bad');
+    this.hud.toast(`先に「${target.name}」に着かないと客を半分取られる！`, 'warn');
+    this._hint('rival');
+    void fromStop;
+  }
+
+  _onRivalArrive() {
+    const run = this.run;
+    const i = this.rival.targetIdx;
+    const st = run.stops[i];
+    if (!st || st.status !== 'pending') return;
+    const s = this.stops[i];
+    const n = st.shown;
+    const take = Math.min(n, Math.ceil(n / 2));
+    if (take <= 0) return;
+    st.stolen += take;
+    st.shown -= take;
+    run.rivalLosses++;
+    run.rivalTarget = -1;
+    this.passengers.board(s, this.rival.doorPos(), take, () => {});
+    this.audio.play('late', { volume: 0.7 });
+    this.hud.toast(`ライバルに「${s.name}」の客を ${take} 人横取りされた！`, 'bad');
+  }
+
+  _onRivalBump(hit) {
+    const run = this.run;
+    const r = this.rival.bus;
+    r.x -= hit.nx * hit.depth * 0.45;
+    r.z -= hit.nz * hit.depth * 0.45;
+    r.vx -= hit.nx * 2;
+    r.vz -= hit.nz * 2;
+    if ((this._rivalBumpCd || 0) > run.t) return;
+    this._rivalBumpCd = run.t + 1.5;
+    this.audio.play('wall', { volume: 0.7 });
+    this.effects.sparks_((this.bus.x + r.x) / 2, 1.2, (this.bus.z + r.z) / 2, 12);
+    this._voice('car', 0.6);
+  }
+
+  // ---------------- 急ぎの客 ----------------
+  _updateHurry() {
+    const run = this.run;
+    for (const h of run.hurry) {
+      if (h.state === 'riding' && run.t > h.deadline) {
+        h.state = 'failed';
+        this.hud.toast(`急ぎの客が間に合わず怒っている…（${this.stops[h.to].name}）`, 'bad');
+        this._voice('late', 1, true);
+      }
+    }
+  }
+
+  // ---------------- 暴走モード ----------------
+  _rampageHit(points, label, x, z) {
+    const rp = this.run.rampage;
+    const t = this.run.t;
+    rp.chain = t - rp.lastHitT <= RAMPAGE.comboWindow ? rp.chain + 1 : 1;
+    rp.lastHitT = t;
+    rp.maxChain = Math.max(rp.maxChain, rp.chain);
+    rp.destroyed++;
+    const mult = rampageMultiplier(rp.chain);
+    const got = Math.round(points * mult);
+    rp.points += got;
+    this._floatWorld(x, 2, z, `+${got.toLocaleString()}${mult > 1 ? ` ×${mult}` : ''} ${label}`, 'fare');
+    if (rp.chain === 3 || rp.chain === 7 || rp.chain === 12) {
+      this.hud.big(`${rp.chain} コンボ！`, `破壊点 ×${mult}`, 0.9, 'go');
+      this.audio.play('combo', { volume: 0.7 });
+    }
+  }
+
+  _updateRampage() {
+    const rp = this.run.rampage;
+    if (rp.chain > 0 && this.run.t - rp.lastHitT > RAMPAGE.comboWindow) rp.chain = 0;
   }
 
   _updateStops(dt) {
@@ -738,7 +1036,7 @@ export class Game {
       const st = run.stops[i];
       if (st.status !== 'pending') continue;
       const s = this.stops[i];
-      const n = remainingPassengers(s.wait, run.t - s.scheduled);
+      const n = Math.max(0, remainingPassengers(st.base, run.t - s.scheduled) - st.stolen);
       if (n < st.shown) {
         this.passengers.setWaiting(s, n);
         if (i === run.next) {
@@ -775,6 +1073,8 @@ export class Game {
         this._setMarker(ns);
         this.audio.say(`発車します。次は、${ns.kana}です。`);
         this.hud.toast(`次は ${ns.name}`, 'info');
+        // ライバル出現（この停留所を出たところで後ろから）
+        if (run.rivalAt.includes(i) && this.rival.state === 'off') setTimeout(() => this.run === run && this.state === 'playing' && this._spawnRival(i), 1500);
       }
       return;
     }
@@ -811,11 +1111,12 @@ export class Game {
     const st = run.stops[i];
     const bus = this.bus;
     const res = resolveStop({
-      initialWaiting: s.wait,
+      initialWaiting: st.base,
       alighting: s.terminal ? run.onboard : s.off,
       scheduledSec: s.scheduled,
       arrivalSec: run.t,
       onboard: run.onboard,
+      taken: st.stolen,
     });
     st.result = res;
     st.arrival = run.t;
@@ -830,16 +1131,77 @@ export class Game {
     bus.vz = 0;
     bus.doorTarget = 1;
     bus.load = run.onboard / RULES.capacity;
-    if (res.bonus) run.bonus += res.bonus;
+    // 定時コンボ
+    let bonus = 0;
+    const prevCombo = run.combo;
+    if (res.onTime) {
+      run.combo++;
+      run.maxCombo = Math.max(run.maxCombo, run.combo);
+      bonus = comboBonus(run.combo, run.mods.comboMult);
+      run.bonus += bonus;
+      if (run.combo >= 10) this._unlock('combo10');
+    } else run.combo = 0;
+    res.bonus = bonus;
+    // ピタ止め（中扉を標柱の横に、縁石ぎりぎりに）
+    const err = stopError(s, bus.x, bus.z);
+    const pg = pitaGrade(err.along, err.gap, run.mods.pitaMult);
+    run.pita[pg.grade]++;
+    run.skill += pg.bonus;
+    st.pita = pg.grade;
+    if (run.pita.perfect >= 6) this._unlock('pitamaster');
+    if (i <= 1 && !s.terminal) setTimeout(() => this.run === run && this._hint('pita'), 1800);
     this.bus.setOnboard(run.onboard, RULES.capacity);
     this.audio.play('door', { volume: 0.7 });
     if (res.onTime) {
       this.audio.play('ontime', { volume: 0.8 });
-      this._voice('ontime', 0.8, true);
+      this._voice(pg.grade === 'perfect' ? 'pita' : 'ontime', 0.8, true);
       if (res.delay > -1) this._unlock('justintime');
     } else {
       this.audio.play('late', { volume: 0.7 });
       if (res.lost > 0) this._voice('late', 0.9, true);
+    }
+    if (pg.grade !== 'miss') {
+      this.audio.play(pg.grade === 'perfect' ? 'pita' : 'coin', { volume: pg.grade === 'perfect' ? 0.8 : 0.5, delay: 0.25 });
+      this._floatWorld(bus.x, 4.5, bus.z, `${pg.label} +¥${pg.bonus}`, pg.grade === 'perfect' ? 'pita' : 'fare');
+      if (pg.grade === 'perfect') this.effects.confetti(bus.x, 6, bus.z, 18);
+    }
+    if (!res.onTime && prevCombo >= 2) this.hud.toast(`定時コンボが途切れた…（${prevCombo}連続）`, 'warn');
+    // ライバルとの競争
+    if (run.rivalTarget === i && this.rival.state === 'race') {
+      run.rivalWins++;
+      run.rivalTarget = -1;
+      run.skill += RULES.rivalWin;
+      this.rival.giveUp();
+      this.hud.toast(`ライバルに競り勝った！ +¥${RULES.rivalWin.toLocaleString()}`, 'achieve');
+      this.audio.play('combo', { volume: 0.7, delay: 0.5 });
+      this._unlock('rival');
+    }
+    // 急ぎの客
+    for (const h of run.hurry) {
+      if (h.to === i && h.state === 'riding') {
+        h.state = 'done';
+        const tip = RULES.hurryTip * run.mods.tipMult;
+        run.tips += tip;
+        run.hurryDone++;
+        this.hud.toast(`急ぎの客を送り届けた！ チップ ¥${tip.toLocaleString()}`, 'achieve');
+        this._floatWorld(bus.x, 5.2, bus.z, `チップ +¥${tip.toLocaleString()}`, 'pita');
+        this.audio.play('tip', { volume: 0.8, delay: 0.4 });
+        setTimeout(() => this.run === run && this._voice('thanks', 1, true), 900);
+        if (run.hurryDone >= 3) this._unlock('tipking');
+      }
+      if (h.from === i && h.state === 'waiting') {
+        h.state = 'riding';
+        const allot = (this.stops[h.to].scheduled - s.scheduled) * 0.95 + 8;
+        h.deadline = run.t + allot;
+        h.allot = allot;
+        setTimeout(() => {
+          if (this.run !== run) return;
+          this.hud.big('急ぎの客が乗車！', `${this.stops[h.to].name}まで ${Math.round(allot)}秒以内に！`, 2, 'go');
+          this._voice('hurry', 1, true);
+          this._hint('hurry');
+        }, 1600);
+        this._updateHurryMarkers();
+      }
     }
 
     // 乗客の動き
@@ -856,10 +1218,11 @@ export class Game {
       for (let k = n; k < res.board; k++) setTimeout(() => this.run === run && st.status === 'serving' && this._boardOne(i), 300 + k * 150);
     }
 
+    const pitaText = pg.grade === 'miss' ? '' : `　${pg.label}`;
     if (s.terminal) {
-      this.hud.big('終点 限界駅', res.onTime ? '定時到着！ +¥' + res.bonus : `遅延 ${Math.round(res.delay)}秒`, 2, res.onTime ? 'good' : 'bad');
+      this.hud.big('終点 限界駅', (res.onTime ? `定時到着！ +¥${bonus}` : `遅延 ${Math.round(res.delay)}秒`) + pitaText, 2, res.onTime ? 'good' : 'bad');
     } else if (res.onTime) {
-      this.hud.big('定時到着！', `+¥${res.bonus} ボーナス`, 1.4, 'good');
+      this.hud.big(run.combo >= 2 ? `定時コンボ ×${run.combo}` : '定時到着！', `+¥${bonus.toLocaleString()} ボーナス${pitaText}`, 1.4, 'good');
     } else {
       this.hud.big(`遅延 ${Math.round(res.delay)}秒`, res.lost > 0 ? `${res.lost}人が待ちきれず帰宅…` : 'お客様はまだ待っていた', 1.6, 'bad');
     }
@@ -977,6 +1340,7 @@ export class Game {
   _updateHud() {
     const run = this.run;
     const bus = this.bus;
+    if (run.rampage) return this._updateRampageHud();
     const idx = Math.min(run.next, this.stops.length - 1);
     const s = this.stops[idx];
     const st = run.stops[idx];
@@ -1029,6 +1393,7 @@ export class Game {
       remain: run.limit - run.t,
       fare: run.fare,
       bonus: run.bonus,
+      extra: run.skill + run.tips,
       fine,
       speedKmh: bus.speed * 3.6,
       onboard: run.onboard,
@@ -1041,14 +1406,78 @@ export class Game {
       this._routeFor = idx;
       const from = { c: Math.floor(bus.x / TILE), r: Math.floor(bus.z / TILE) };
       const to = { c: s.c, r: s.r };
-      const p = shortestPath(from, to, false) || shortestPath(from, to, true);
+      const p = shortestPath(from, to, false, run.blocked) || shortestPath(from, to, true, run.blocked) || shortestPath(from, to, true);
       this._route = p ? p.path.map((t) => tileCenter(t.c, t.r)) : null;
     }
+    this.hud.missions(this._missions());
     this.minimap.draw({
       route: this._route,
       bus: { x: bus.x, z: bus.z, h: bus.h },
       next: idx,
       stopStates: run.stops.map((x) => x.status),
+      cars: this.traffic.cars,
+      time: this.time,
+      visible: this.ui.minimapVisible(),
+      closures: run.closures.map((c) => c.seg),
+      rival: this.rival.state === 'race' ? { x: this.rival.x, z: this.rival.z } : null,
+      hurryTo: run.hurry.filter((h) => h.state === 'riding').map((h) => h.to),
+    });
+  }
+
+  /** HUD に並べる進行中の目標 */
+  _missions() {
+    const run = this.run;
+    const out = [];
+    if (run.combo >= 1) {
+      const nextBonus = comboBonus(run.combo + 1, run.mods.comboMult);
+      out.push({ cls: run.combo >= 3 ? 'combo hot' : 'combo', text: `🔥 定時コンボ ×${run.combo}　次 +¥${nextBonus.toLocaleString()}` });
+    }
+    for (const h of run.hurry) {
+      if (h.state === 'riding') {
+        const left = Math.max(0, Math.ceil(h.deadline - run.t));
+        out.push({ cls: left <= 20 ? 'hurry danger' : 'hurry', text: `🏃 急ぎ客 → ${this.stops[h.to].name}　あと ${left}秒` });
+      } else if (h.state === 'waiting' && h.from === run.next) {
+        out.push({ cls: 'hurry', text: `🏃 ${this.stops[h.from].name}に急ぎの客（チップ ¥${(RULES.hurryTip * run.mods.tipMult).toLocaleString()}）` });
+      }
+    }
+    if (this.rival.state === 'race' && run.rivalTarget >= 0) {
+      const s = this.stops[run.rivalTarget];
+      const me = Math.hypot(s.zone.cx - this.bus.x, s.zone.cz - this.bus.z);
+      const rv = Math.hypot(s.zone.cx - this.rival.x, s.zone.cz - this.rival.z);
+      out.push({ cls: 'rival', text: `🏁 ライバルと「${s.name}」争奪戦　${me <= rv ? 'リード中' : '負けてる！'}` });
+    }
+    return out;
+  }
+
+  _updateRampageHud() {
+    const run = this.run;
+    const bus = this.bus;
+    const rp = run.rampage;
+    const remain = run.limit - run.t;
+    if (this.state === 'playing') {
+      this.audio.setRush(remain < 40 || rp.chain >= 3 ? 1 : 0);
+      const sec = Math.ceil(remain);
+      if (sec <= 10 && sec > 0 && sec !== run.lastTick) {
+        run.lastTick = sec;
+        this.audio.play('tick', { volume: 0.9 });
+      }
+      this.hud.speedLines(bus.speed * 3.6);
+    }
+    this.hud.rampage({
+      points: rp.points,
+      chain: rp.chain,
+      mult: rampageMultiplier(rp.chain),
+      destroyed: rp.destroyed,
+      window: rp.chain > 0 ? 1 - (run.t - rp.lastHitT) / RAMPAGE.comboWindow : 0,
+      remain,
+      clockText: formatClock(RULES.startClockSec + run.t),
+      speedKmh: bus.speed * 3.6,
+    });
+    this.minimap.draw({
+      route: null,
+      bus: { x: bus.x, z: bus.z, h: bus.h },
+      next: -1,
+      stopStates: run.stops.map(() => 'done'),
       cars: this.traffic.cars,
       time: this.time,
       visible: this.ui.minimapVisible(),

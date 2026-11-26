@@ -165,23 +165,29 @@ export function destinationTexture(text = '限界駅 行') {
 }
 
 /** 車体側面の社名・ストライプ */
-export function busSideTexture() {
+/** バスの塗装（社名・帯の色） */
+export const LIVERIES = {
+  genkai: { body: '#f7f5ee', stripe: '#1f8a4c', accent: '#f2b705', name: '限界交通', en: 'GENKAI BUS', dest: '限界駅 行', destShort: '限界駅' },
+  rival: { body: '#fbeee8', stripe: '#d23a2a', accent: '#2a3f8f', name: 'ギリギリ交通', en: 'GIRIGIRI BUS', dest: '横取り 行', destShort: '回送' },
+};
+
+export function busSideTexture(lv = LIVERIES.genkai) {
   const c = canvas(1024, 256);
   const g = c.getContext('2d');
-  g.fillStyle = '#f7f5ee';
+  g.fillStyle = lv.body;
   g.fillRect(0, 0, 1024, 256);
   // ストライプ
-  g.fillStyle = '#1f8a4c';
+  g.fillStyle = lv.stripe;
   g.fillRect(0, 170, 1024, 34);
-  g.fillStyle = '#f2b705';
+  g.fillStyle = lv.accent;
   g.fillRect(0, 206, 1024, 10);
-  g.fillStyle = '#1f8a4c';
+  g.fillStyle = lv.stripe;
   // 窓の帯（canvas の y 34〜136）より下に社名
   g.font = `bold 30px ${JP_FONT}`;
   g.textBaseline = 'middle';
-  g.fillText('限界交通', 600, 154);
+  g.fillText(lv.name, 600, 154);
   g.font = `bold 18px ${JP_FONT}`;
-  g.fillText('GENKAI BUS', 735, 156);
+  g.fillText(lv.en, 600 + lv.name.length * 31 + 10, 156);
   return finish(c);
 }
 

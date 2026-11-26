@@ -2,13 +2,13 @@
 import * as THREE from 'three';
 import { BUS } from '../config.js';
 import { MeshBuilder } from '../world/meshBuilder.js';
-import { busSideTexture, destinationTexture } from '../world/textures.js';
+import { busSideTexture, destinationTexture, LIVERIES } from '../world/textures.js';
 import { TILE, tileAt, solidRectForTile, T } from '../world/map.js';
 import { circleVsAABB, circleVsCircle } from '../core/collision.js';
 
 const SIDE_PLAIN = [0.01, 0.99];
 
-function buildModel() {
+function buildModel(lv = LIVERIES.genkai) {
   const root = new THREE.Group();
   root.name = 'bus';
   const body = new THREE.Group(); // ロール・ピッチ・バウンドを与える
@@ -16,7 +16,7 @@ function buildModel() {
 
   const L = BUS.length / 2, W = BUS.width / 2;
   const y0 = 0.42, y1 = 3.05;
-  const sideTex = busSideTexture();
+  const sideTex = busSideTexture(lv);
 
   // 車体（側面にストライプと社名）
   const shell = new MeshBuilder(SIDE_PLAIN);
@@ -140,10 +140,10 @@ function buildModel() {
   body.add(new THREE.Mesh(gap.build(), new THREE.MeshBasicMaterial({ vertexColors: true })));
 
   // 行先表示
-  const dest = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 0.4), new THREE.MeshBasicMaterial({ map: destinationTexture('限界駅 行') }));
+  const dest = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 0.4), new THREE.MeshBasicMaterial({ map: destinationTexture(lv.dest) }));
   dest.position.set(0, 2.88, L + 0.03);
   body.add(dest);
-  const destSide = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.32), new THREE.MeshBasicMaterial({ map: destinationTexture('限界駅') }));
+  const destSide = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.32), new THREE.MeshBasicMaterial({ map: destinationTexture(lv.destShort) }));
   destSide.position.set(W + 0.03, 2.82, 2.8);
   destSide.rotation.y = Math.PI / 2;
   body.add(destSide);
@@ -200,7 +200,7 @@ function buildModel() {
   root.add(blob);
 
   // 後ろの行先表示
-  const destRear = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.3), new THREE.MeshBasicMaterial({ map: destinationTexture('限界駅') }));
+  const destRear = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.3), new THREE.MeshBasicMaterial({ map: destinationTexture(lv.destShort) }));
   destRear.position.set(0, 2.85, -L - 0.03);
   destRear.rotation.y = Math.PI;
   body.add(destRear);
@@ -209,8 +209,9 @@ function buildModel() {
 }
 
 export class Bus {
-  constructor(scene) {
-    this.model = buildModel();
+  constructor(scene, { livery } = {}) {
+    this.model = buildModel(livery);
+    this.tuning = { brake: 1, speed: 1, accel: 1 };
     scene.add(this.model.root);
     this.circles = [];
     this.reset(0, 0, 0);
@@ -302,7 +303,7 @@ export class Bus {
     let along = 0;
     if (input.throttle && !input.hold) {
       if (vf < -0.5) along += BUS.brake * loadK;
-      else along += BUS.accel * loadK * Math.max(0, 1 - Math.pow(Math.max(0, vf) / BUS.maxSpeed, 2));
+      else along += BUS.accel * this.tuning.accel * loadK * Math.max(0, 1 - Math.pow(Math.max(0, vf) / (BUS.maxSpeed * this.tuning.speed), 2));
     }
     // 停車保持（乗降中・カウントダウン中など）
     if (input.hold) {
@@ -317,7 +318,7 @@ export class Bus {
     // ブレーキは踏み続けるほど強くなる（軽く踏めば急ブレーキにならない）
     if (input.brake && !input.hold && vf > 0.4) this.brakeHold += dt;
     else this.brakeHold = 0;
-    const brakeForce = BUS.brake * (0.45 + 0.55 * Math.min(1, this.brakeHold / 0.6));
+    const brakeForce = BUS.brake * this.tuning.brake * (0.45 + 0.55 * Math.min(1, this.brakeHold / 0.6));
     if (input.brake && !input.hold) {
       if (vf > 0.4) along -= brakeForce * (0.85 + 0.15 * loadK);
       else if (!input.throttle && (this.reverseHold > 0.35 || vf < -0.4)) along -= vf > -BUS.maxReverse ? BUS.reverseAccel : 0;
@@ -434,6 +435,17 @@ export class Bus {
             }
           }
         }
+        // 動く箱（電車など）
+        if (env.boxes) {
+          for (const b of env.boxes) {
+            const hit = circleVsAABB(c.x, c.z, c.r, b);
+            if (hit) {
+              this._resolve(c, hit, 0.35, 1);
+              env.onBoxHit && env.onBoxHit(b, hit);
+              any = true;
+            }
+          }
+        }
         // 電柱など
         if (env.staticHash) {
           env.staticHash.query(c.x, c.z, c.r + 1, near);
@@ -449,7 +461,8 @@ export class Bus {
         if (env.cars) {
           for (const car of env.cars) {
             if (!car.solid) continue;
-            if (Math.abs(car.x - c.x) > 6 || Math.abs(car.z - c.z) > 6) continue;
+            const reach = car.reach || 6;
+            if (Math.abs(car.x - c.x) > reach || Math.abs(car.z - c.z) > reach) continue;
             for (const cc of car.circles) {
               const hit = circleVsCircle(c.x, c.z, c.r, cc.x, cc.z, cc.r);
               if (hit) {

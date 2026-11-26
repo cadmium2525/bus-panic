@@ -1,0 +1,25 @@
+{
+ "preset": "deden",
+ "fx": [
+  {
+   "type": "eq",
+   "bands": [
+    {
+     "type": "hp",
+     "freq": 200,
+     "slope": 24
+    }
+   ]
+  },
+  {
+   "type": "eq",
+   "bands": [
+    {
+     "type": "lowshelf",
+     "freq": 250,
+     "gain": -5
+    }
+   ]
+  }
+ ]
+}

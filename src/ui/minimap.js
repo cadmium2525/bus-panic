@@ -1,5 +1,5 @@
 // 折り畳み可能なミニマップ（進行方向が上）
-import { N, TILE, T, tileAt } from '../world/map.js';
+import { N, TILE, T, tileAt, RAIL } from '../world/map.js';
 
 const SCALE = 2; // px / m（オフスクリーン）
 
@@ -35,6 +35,13 @@ export class Minimap {
         g.fillRect(c * s, r * s, s + 0.5, s + 0.5);
       }
     }
+    // 線路（枕木つき）
+    for (const z of RAIL.tracks) {
+      g.fillStyle = '#6b6258';
+      g.fillRect(0, (z - 1.2) * SCALE, this.base.width, 2.4 * SCALE);
+      g.fillStyle = '#3a3a3a';
+      for (let x = 0; x < N * TILE; x += 3) g.fillRect(x * SCALE, (z - 1.2) * SCALE, 0.8 * SCALE, 2.4 * SCALE);
+    }
     // 路地は点線っぽく
     g.fillStyle = 'rgba(255,214,102,0.55)';
     for (let r = 0; r < N; r++) {
@@ -45,7 +52,7 @@ export class Minimap {
     }
   }
 
-  draw({ bus, next, stopStates, cars, time, visible, route }) {
+  draw({ bus, next, stopStates, cars, time, visible, route, closures = [], rival = null, hurryTo = [] }) {
     if (!visible) return;
     const cv = this.canvas;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -103,11 +110,55 @@ export class Minimap {
       g.strokeStyle = '#222';
       g.stroke();
     }
+    // 通行止め（赤い ✕）
+    g.lineCap = 'round';
+    for (const c of closures) {
+      const x0 = c.c0 * TILE, x1 = (c.c1 + 1) * TILE, z0 = c.r0 * TILE, z1 = (c.r1 + 1) * TILE;
+      g.fillStyle = 'rgba(231,76,60,0.35)';
+      g.fillRect(x0, z0, x1 - x0, z1 - z0);
+      const mx = (x0 + x1) / 2, mz = (z0 + z1) / 2;
+      g.strokeStyle = '#fff';
+      g.lineWidth = 5;
+      for (const k of [0, 1]) {
+        g.beginPath();
+        g.moveTo(mx - 6, mz - 6 + k * 12);
+        g.lineTo(mx + 6, mz + 6 - k * 12);
+        g.stroke();
+      }
+      g.strokeStyle = '#e74c3c';
+      g.lineWidth = 3;
+      for (const k of [0, 1]) {
+        g.beginPath();
+        g.moveTo(mx - 6, mz - 6 + k * 12);
+        g.lineTo(mx + 6, mz + 6 - k * 12);
+        g.stroke();
+      }
+    }
+    // 急ぎの客の行き先（水色の輪）
+    for (const i of hurryTo) {
+      const s = this.stops[i];
+      if (!s) continue;
+      g.strokeStyle = '#4fd2ff';
+      g.lineWidth = 2.5;
+      g.beginPath();
+      g.arc(s.center.x, s.center.z, 8 + Math.sin(time * 5) * 1.5, 0, Math.PI * 2);
+      g.stroke();
+    }
     // 他車
     g.fillStyle = '#e74c3c';
     for (const c of cars) {
       if (c.state !== 'drive') continue;
       g.fillRect(c.x - 1.6, c.z - 1.6, 3.2, 3.2);
+    }
+    // ライバルのバス
+    if (rival) {
+      g.fillStyle = '#ff3b8a';
+      g.strokeStyle = '#fff';
+      g.lineWidth = 1.5;
+      g.beginPath();
+      g.arc(rival.x, rival.z, 4.5, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
     }
     g.restore();
 

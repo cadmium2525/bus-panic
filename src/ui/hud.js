@@ -37,6 +37,11 @@ export class Hud {
     this._bigTimer = 0;
     this._last = {};
     this.floatPool = [];
+    this.el.missions = $('hud-missions');
+    this.el.mode = $('hud-mode');
+    this.el.next = $('hud-next');
+    this.el.rp = { panel: $('hud-rampage'), points: $('hud-rp-points'), chain: $('hud-rp-chain'), count: $('hud-rp-count'), meter: $('hud-rp-meter') };
+    this.el.moneyLabel = document.querySelector('#hud .money div:first-child span');
     this.el.bubbles = $('bubbles');
     this.el.hint = $('hint');
     this.el.hintText = $('hint-text');
@@ -115,6 +120,61 @@ export class Hud {
     this.el.root.classList.toggle('hidden', !on);
   }
 
+  /** 遊んでいるモードの表示（日替わりの条件・暴走モードの得点パネル） */
+  setMode(mode, daily = null) {
+    const e = this.el;
+    this.mode = mode;
+    this._last = {};
+    e.root.classList.toggle('mode-rampage', mode === 'rampage');
+    e.rp.panel.classList.toggle('hidden', mode !== 'rampage');
+    let chip = '';
+    if (mode === 'daily' && daily) chip = `📅 ${daily.picks.map((p) => `${p.icon}${p.name}`).join('・')}`;
+    if (mode === 'rampage') chip = '🦖 暴走モード';
+    e.mode.textContent = chip;
+    e.mode.className = `mode-chip ${mode}` + (chip ? '' : ' hidden');
+    e.root.classList.toggle('has-mode', !!chip);
+    e.moneyLabel.textContent = mode === 'rampage' ? '破壊点' : '運賃';
+    e.missions.textContent = '';
+  }
+
+  /** 進行中の目標（コンボ・急ぎの客・ライバル）。list = [{ cls, text }] */
+  missions(list) {
+    const key = list.map((m) => m.cls + m.text).join('|');
+    if (this._last.missions === key) return;
+    this._last.missions = key;
+    const e = this.el.missions;
+    e.textContent = '';
+    for (const m of list) {
+      const d = document.createElement('div');
+      d.className = 'mission ' + m.cls;
+      d.textContent = m.text;
+      e.appendChild(d);
+    }
+  }
+
+  /** 暴走モードの得点パネル */
+  rampage(s) {
+    const e = this.el;
+    this._set('rpPoints', e.rp.points, s.points.toLocaleString());
+    this._set('rpChain', e.rp.chain, s.chain > 0 ? `${s.chain} コンボ ×${s.mult}` : 'コンボ —');
+    if (this._last.rpHot !== s.mult > 1) {
+      this._last.rpHot = s.mult > 1;
+      e.rp.chain.classList.toggle('hot', s.mult > 1);
+    }
+    this._set('rpCount', e.rp.count, `破壊 ${s.destroyed}`);
+    e.rp.meter.style.transform = `scaleX(${Math.max(0, Math.min(1, s.window)).toFixed(3)})`;
+    this._set('clock', e.clock, s.clockText);
+    const rem = Math.max(0, Math.ceil(s.remain));
+    this._set('remain', e.remain, `残り ${Math.floor(rem / 60)}:${String(rem % 60).padStart(2, '0')}`);
+    e.remain.classList.toggle('danger', rem <= 15);
+    this._set('fare', e.fare, s.points.toLocaleString());
+    this._set('total', e.total, s.points.toLocaleString());
+    const kmh = Math.round(s.speedKmh);
+    this._set('speed', e.speed, String(kmh));
+    e.speedBar.style.transform = `scaleX(${Math.min(1, kmh / 75).toFixed(3)})`;
+    this._set('onboard', e.onboard, '乗客なし（回送）');
+  }
+
   _set(key, el, text) {
     if (this._last[key] === text) return;
     this._last[key] = text;
@@ -155,9 +215,9 @@ export class Hud {
     const rem = Math.max(0, Math.ceil(s.remain));
     this._set('remain', e.remain, `残り ${Math.floor(rem / 60)}:${String(rem % 60).padStart(2, '0')}`);
     e.remain.classList.toggle('danger', rem <= 30);
-    this._set('fare', e.fare, formatYen(s.fare + s.bonus));
+    this._set('fare', e.fare, formatYen(s.fare + s.bonus + (s.extra || 0)));
     this._set('fine', e.fine, s.fine > 0 ? formatYen(-s.fine) : '¥0');
-    this._set('total', e.total, formatYen(s.fare + s.bonus - s.fine));
+    this._set('total', e.total, formatYen(s.fare + s.bonus + (s.extra || 0) - s.fine));
     const kmh = Math.round(s.speedKmh);
     this._set('speed', e.speed, String(kmh));
     e.speedBar.style.transform = `scaleX(${Math.min(1, kmh / 75).toFixed(3)})`;

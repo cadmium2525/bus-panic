@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { MeshBuilder } from './meshBuilder.js';
 import {
   TILE, N, T, SIDEWALK, tileAt, zoneAt, isMainType, isDrivableType, solidRectForTile,
-  H_ROADS, V_ROADS, ALLEYS,
+  H_ROADS, V_ROADS, ALLEYS, RAIL,
 } from './map.js';
 import * as TX from './textures.js';
 
@@ -105,6 +105,7 @@ export function buildCity(scene, { decorDensity = 1, stops = [] } = {}) {
   const nearStop = (x, z, d) => stops.some((st) => Math.abs(st.center.x - x) < d && Math.abs(st.center.z - z) < d);
   const spawns = { cone: [], pot: [], sign: [], board: [], nobori: [], guardrail: [], barricade: [] };
   const wires = [];
+  const catenary = []; // 架線柱の x
   const textPlates = []; // {texture, x,y,z,w,h,rotY}
 
   // ---------- 地面・道路・歩道・川 ----------
@@ -115,6 +116,7 @@ export function buildCity(scene, { decorDensity = 1, stops = [] } = {}) {
   const curbCol = new THREE.Color('#d2cfc8');
   const grass = new THREE.Color('#6f9a4a');
   const concrete = new THREE.Color('#a9a59b');
+  const gravelCol = new THREE.Color('#8f877b');
   const tmp = new THREE.Color();
 
   const g = B.ground;
@@ -143,7 +145,7 @@ export function buildCity(scene, { decorDensity = 1, stops = [] } = {}) {
       // SOLID
       const rect = solidRectForTile(c, r);
       const zone = zoneAt(c, r);
-      const ground = zone === 'park' || zone === 'shrine' ? grass : concrete;
+      const ground = zone === 'park' || zone === 'shrine' ? grass : zone === 'rail' ? gravelCol : concrete;
       tmp.copy(ground).offsetHSL(0, 0, jitter);
       g.quad([rect.x0, SW_H, rect.z1], [rect.x1, SW_H, rect.z1], [rect.x1, SW_H, rect.z0], [rect.x0, SW_H, rect.z0], tmp);
       // 歩道帯
@@ -602,20 +604,33 @@ export function buildCity(scene, { decorDensity = 1, stops = [] } = {}) {
       }
       P.box(sx0 + 18, SW_H, sz0 - 0.1, sx1 - 18, 4.5, sz0, '#6f8ea6');
       textPlates.push({ texture: tex.station, x: (sx0 + sx1) / 2, y: 11, z: sz0 - 0.1, w: 16, h: 4, rotY: Math.PI });
-      // 線路・ホーム・電車
-      const tz = sz1 + 9;
-      const tx0 = 39 * TILE, tx1 = 54 * TILE;
-      P.box(tx0, SW_H, tz - 4, tx1, 0.35, tz + 4, '#8b8070');
-      for (const rz of [tz - 0.75, tz + 0.75]) P.box(tx0, 0.35, rz - 0.06, tx1, 0.5, rz + 0.06, '#5b5f63');
-      P.box(sx0, SW_H, sz1, sx1, 1.1, tz - 2.2, '#c2bdb3');
-      for (let k = 0; k < 4; k++) {
-        const x0 = sx0 + 4 + k * 20.5;
-        P.box(x0, 0.6, tz - 1.45, x0 + 19.5, 4.2, tz + 1.45, '#f1ede3');
-        P.box(x0 - 0.02, 2.1, tz - 1.47, x0 + 19.52, 3.3, tz + 1.47, '#2f4152');
-        P.box(x0 - 0.03, 1.3, tz - 1.48, x0 + 19.53, 1.7, tz + 1.48, '#e8792b');
+      // ホーム（線路は rail の帯で描く）と屋根
+      const pz1 = RAIL.tracks[0] - 1.8;
+      P.box(sx0, SW_H, sz1, sx1, 1.1, pz1, '#c2bdb3');
+      P.box(sx0, 1.1, pz1 - 0.35, sx1, 1.12, pz1 - 0.05, '#f0c330');
+      for (let x = sx0 + 4; x <= sx1 - 4; x += 12) P.cylinder(x, 1.1, sz1 + 3, 0.18, 3.4, '#9aa3a8', 6);
+      P.box(sx0 + 2, 4.5, sz1 + 0.5, sx1 - 2, 4.75, pz1 - 0.6, '#d7dbde');
+    },
+    rail(R) {
+      // 線路の帯：バラスト・レール・柵・架線柱（駅のホームの前は柵なし）
+      const zb0 = RAIL.z0 + 1, zb1 = RAIL.z1 - 1;
+      P.box(R.x0, SW_H, zb0, R.x1, 0.32, zb1, '#8b8378', { bottom: false });
+      for (const tz of RAIL.tracks) {
+        for (let x = Math.ceil(R.x0 / 1.1) * 1.1; x < R.x1; x += 1.1) P.box(x - 0.13, 0.32, tz - 1.2, x + 0.13, 0.38, tz + 1.2, '#6f675d', { sides: false });
+        for (const rz of [tz - 0.72, tz + 0.72]) P.box(R.x0, 0.4, rz - 0.06, R.x1, 0.54, rz + 0.06, '#6b7075');
       }
-      for (let x = tx0 + 3; x < tx1 - 3; x += 4) P.box(x, SW_H, R.z1 - 0.3, x + 0.12, 2, R.z1, '#888');
-      P.box(tx0 + 3, 1.7, R.z1 - 0.3, tx1 - 3, 1.8, R.z1, '#888');
+      const station = (x) => x > 336 && x < 408;
+      for (let x = R.x0; x < R.x1; x += 3) {
+        const x1 = Math.min(R.x1, x + 3);
+        if (!station(x)) P.box(x, SW_H, RAIL.z0 - 0.4, x1, 1.5, RAIL.z0 - 0.3, '#6f8f77');
+        P.box(x, SW_H, RAIL.z1 + 0.3, x1, 1.5, RAIL.z1 + 0.4, '#6f8f77');
+      }
+      for (let x = Math.ceil(R.x0 / 24) * 24 + 6; x < R.x1 - 1; x += 24) {
+        if (station(x)) continue;
+        P.cylinder(x, SW_H, RAIL.z1 - 0.2, 0.17, 7.2, '#9a9c98', 6);
+        P.box(x - 0.08, 6.6, RAIL.tracks[0] - 1.6, x + 0.08, 6.8, RAIL.z1 - 0.2, '#8a8c88');
+        catenary.push(x);
+      }
     },
     depot(R) {
       const L = { x0: R.x0 + 1, x1: R.x1 - 14, z0: R.z0 + 1, z1: R.z1 - 1 };
@@ -705,6 +720,35 @@ export function buildCity(scene, { decorDensity = 1, stops = [] } = {}) {
     colliders.circles.push({ x: cx, z: cz, r: 3.2, kind: 'static' });
   }
 
+  // ---------- 線路の延長（地図の外）と踏切の路面 ----------
+  for (const [xa, xb] of [[-450, 0], [480, 930]]) {
+    P.box(xa, -0.03, RAIL.z0 + 1, xb, 0.32, RAIL.z1 - 1, '#8b8378', { bottom: false });
+    for (const tz of RAIL.tracks) for (const rz of [tz - 0.72, tz + 0.72]) P.box(xa, 0.4, rz - 0.06, xb, 0.54, rz + 0.06, '#6b7075');
+  }
+  // 架線（電柱の間を張る）
+  catenary.sort((a, b) => a - b);
+  for (let k = 0; k < catenary.length - 1; k++) {
+    const a = catenary[k], b = catenary[k + 1];
+    if (b - a > 40) continue;
+    for (const tz of RAIL.tracks) wires.push(a, 6.0, tz, b, 6.0, tz);
+  }
+  const crossings = [];
+  for (let c = 0; c < N; c++) {
+    const t = tileAt(c, RAIL.rows[0]);
+    if (!isDrivableType(t)) continue;
+    if (isDrivableType(tileAt(c - 1, RAIL.rows[0]))) continue; // 道路の西端のタイルだけ
+    let c1 = c;
+    while (isDrivableType(tileAt(c1 + 1, RAIL.rows[0]))) c1++;
+    const x0 = c * TILE, x1 = (c1 + 1) * TILE;
+    crossings.push({ x0, x1, x: (x0 + x1) / 2, alley: t === T.ALLEY });
+    // 踏切の路面（ゴムの板）とレール、手前の停止線
+    const Yc = 0.026;
+    M.quad([x0, Yc, RAIL.tracks[1] + 1.9], [x1, Yc, RAIL.tracks[1] + 1.9], [x1, Yc, RAIL.tracks[0] - 1.9], [x0, Yc, RAIL.tracks[0] - 1.9], '#34373c');
+    for (const tz of RAIL.tracks) for (const rz of [tz - 0.72, tz + 0.72]) M.quad([x0, Yc + 0.004, rz + 0.07], [x1, Yc + 0.004, rz + 0.07], [x1, Yc + 0.004, rz - 0.07], [x0, Yc + 0.004, rz - 0.07], '#9aa0a6');
+    flat(x0 + 0.4, RAIL.z0 - 3.4, x1 - 0.4, RAIL.z0 - 2.95, white);
+    flat(x0 + 0.4, RAIL.z1 + 2.95, x1 - 0.4, RAIL.z1 + 3.4, white);
+  }
+
   // ---------- 電柱と電線 ----------
   const poles = [];
   function pole(x, z, rotY) {
@@ -734,7 +778,8 @@ export function buildCity(scene, { decorDensity = 1, stops = [] } = {}) {
     for (let z = 3 * TILE + 12; z < 56 * TILE - 6; z += 2) {
       const r = Math.floor(z / TILE);
       const x = c0 * TILE - 0.7;
-      if (tileAt(c0 - 1, r) !== T.SOLID || isH(r) || isH(Math.floor((z - 5) / TILE)) || isH(Math.floor((z + 5) / TILE))) { last = null; continue; }
+      const nearRail = Math.abs(z - (RAIL.z0 + RAIL.z1) / 2) < 16;
+      if (nearRail || tileAt(c0 - 1, r) !== T.SOLID || isH(r) || isH(Math.floor((z - 5) / TILE)) || isH(Math.floor((z + 5) / TILE))) { last = null; continue; }
       if (last !== null && z - last < 32) continue;
       if (nearAvoid(x, z)) continue;
       pole(x, z, Math.PI / 2);
@@ -959,6 +1004,7 @@ export function buildCity(scene, { decorDensity = 1, stops = [] } = {}) {
     colliders,
     spawns,
     intersections,
+    crossings,
     textures: tex,
   };
 }

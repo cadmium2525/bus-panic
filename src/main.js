@@ -77,6 +77,7 @@ function boot() {
       debug: {
         autopilot: params.has('autopilot') ? params.get('autopilot') || 'main' : null,
         timescale: parseFloat(params.get('timescale')) || 0,
+        seed: parseInt(params.get('seed'), 10) || 0,
         fixedFrame: parseFloat(params.get('fixedframe')) || 0,
         startStop: parseInt(params.get('startstop'), 10) || 0,
         capture: params.has('capture'),
@@ -121,7 +122,7 @@ function boot() {
     else if (game.state !== 'paused') audio.resume();
   });
 
-  if (params.has('autostart')) game.startRun();
+  if (params.has('autostart')) game.startRun(params.get('mode') || 'normal');
 }
 
 boot();

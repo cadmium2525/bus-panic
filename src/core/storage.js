@@ -38,14 +38,21 @@ export function saveSettings(s) {
   return write(KEY_SETTINGS, s);
 }
 
-export function loadBest() {
-  return read(KEY_BEST);
+/** モードごとの自己ベストの保存先（日替わりは日付ごと） */
+function bestKey(mode = 'normal', day = null) {
+  if (mode === 'rampage') return 'genkai-bus:best:rampage:v1';
+  if (mode === 'daily') return `genkai-bus:best:daily:${day}`;
+  return KEY_BEST;
+}
+
+export function loadBest(mode = 'normal', day = null) {
+  return read(bestKey(mode, day));
 }
 
 /** スコアが自己ベストなら保存して true */
-export function submitBest(result) {
-  const best = loadBest();
+export function submitBest(result, mode = 'normal', day = null) {
+  const best = loadBest(mode, day);
   if (best && best.total >= result.total) return false;
-  write(KEY_BEST, { total: result.total, rank: result.rank, date: new Date().toISOString(), stops: result.stopsServed, damage: result.damage });
+  write(bestKey(mode, day), { total: result.total, rank: result.rank, date: new Date().toISOString(), stops: result.stopsServed, damage: result.damage });
   return true;
 }
