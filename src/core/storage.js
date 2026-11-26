@@ -3,7 +3,11 @@ const KEY_SETTINGS = 'genkai-bus:settings:v1';
 const KEY_BEST = 'genkai-bus:best:v1';
 
 export const DEFAULT_SETTINGS = {
-  volume: 0.7,
+  volume: 0.8,
+  bgmVolume: 0.6,
+  sfxVolume: 0.9,
+  ghost: true,
+  hints: true,
   quality: 'auto', // auto | low | mid | high
   announce: true,
   touch: 'auto', // auto | on | off

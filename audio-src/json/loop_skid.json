@@ -1,0 +1,79 @@
+{
+ "length": 1.3,
+ "normalize": -4,
+ "layers": [
+  {
+   "src": "sine",
+   "freq": 1350,
+   "len": 1.3,
+   "vibrato": {
+    "rate": 11,
+    "depth": 0.5
+   },
+   "amp": [
+    [
+     0,
+     1
+    ],
+    [
+     1.3,
+     1
+    ]
+   ],
+   "gain": -6
+  },
+  {
+   "src": "noise",
+   "len": 1.3,
+   "filter": {
+    "type": "bp",
+    "freq": 2600,
+    "q": 2.5
+   },
+   "amp": [
+    [
+     0,
+     1
+    ],
+    [
+     1.3,
+     1
+    ]
+   ],
+   "gain": -4
+  },
+  {
+   "src": "noise",
+   "len": 1.3,
+   "filter": {
+    "type": "bp",
+    "freq": 900,
+    "q": 1.2
+   },
+   "amp": [
+    [
+     0,
+     1
+    ],
+    [
+     1.3,
+     1
+    ]
+   ],
+   "gain": -14
+  }
+ ],
+ "fx": [
+  {
+   "type": "eq",
+   "bands": [
+    {
+     "type": "hp",
+     "freq": 400,
+     "slope": 24
+    }
+   ]
+  }
+ ],
+ "fadeOut": 0
+}

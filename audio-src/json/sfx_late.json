@@ -1,0 +1,27 @@
+{
+ "preset": "doyon",
+ "pitch": 7,
+ "fx": [
+  {
+   "type": "eq",
+   "bands": [
+    {
+     "type": "hp",
+     "freq": 320,
+     "slope": 24
+    }
+   ]
+  },
+  {
+   "type": "eq",
+   "bands": [
+    {
+     "type": "peak",
+     "freq": 1200,
+     "gain": 4,
+     "q": 0.8
+    }
+   ]
+  }
+ ]
+}

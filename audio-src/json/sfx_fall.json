@@ -1,0 +1,15 @@
+{
+ "preset": "zuko",
+ "fx": [
+  {
+   "type": "eq",
+   "bands": [
+    {
+     "type": "hp",
+     "freq": 160,
+     "slope": 24
+    }
+   ]
+  }
+ ]
+}

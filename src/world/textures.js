@@ -176,11 +176,12 @@ export function busSideTexture() {
   g.fillStyle = '#f2b705';
   g.fillRect(0, 206, 1024, 10);
   g.fillStyle = '#1f8a4c';
-  g.font = `bold 46px ${JP_FONT}`;
+  // 窓の帯（canvas の y 34〜136）より下に社名
+  g.font = `bold 30px ${JP_FONT}`;
   g.textBaseline = 'middle';
-  g.fillText('限界交通', 640, 120);
-  g.font = `bold 22px ${JP_FONT}`;
-  g.fillText('GENKAI BUS', 650, 152);
+  g.fillText('限界交通', 600, 154);
+  g.font = `bold 18px ${JP_FONT}`;
+  g.fillText('GENKAI BUS', 735, 156);
   return finish(c);
 }
 
@@ -416,4 +417,36 @@ export function propAtlas() {
   const t = finish(c);
   t.userData = { cells };
   return t;
+}
+
+/** 地面のざらつき（アスファルト・コンクリートの粒）。頂点カラーに掛け合わせる */
+export function groundNoiseTexture() {
+  const S = 256;
+  const c = canvas(S, S);
+  const g = c.getContext('2d');
+  const img = g.createImageData(S, S);
+  const rnd = seeded(42);
+  for (let i = 0; i < S * S; i++) {
+    const v = 225 + rnd() * 30 - (rnd() < 0.04 ? 30 : 0);
+    img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v;
+    img.data[i * 4 + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  // ひび・補修跡
+  g.strokeStyle = 'rgba(0,0,0,0.08)';
+  g.lineWidth = 1.5;
+  for (let k = 0; k < 6; k++) {
+    g.beginPath();
+    let x = rnd() * S, y = rnd() * S;
+    g.moveTo(x, y);
+    for (let j = 0; j < 6; j++) {
+      x += (rnd() - 0.5) * 40;
+      y += (rnd() - 0.5) * 40;
+      g.lineTo(x, y);
+    }
+    g.stroke();
+  }
+  g.fillStyle = 'rgba(0,0,0,0.05)';
+  for (let k = 0; k < 3; k++) g.fillRect(rnd() * S, rnd() * S, 20 + rnd() * 40, 10 + rnd() * 30);
+  return finish(c, { repeat: true });
 }

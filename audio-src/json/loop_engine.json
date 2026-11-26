@@ -1,0 +1,104 @@
+{
+ "length": 2.4,
+ "normalize": -3,
+ "layers": [
+  {
+   "src": "saw",
+   "voices": 2,
+   "detune": 4,
+   "freq": 55,
+   "len": 2.4,
+   "filter": {
+    "type": "lp",
+    "freq": 1100,
+    "q": 1.2
+   },
+   "amp": [
+    [
+     0,
+     1
+    ],
+    [
+     2.4,
+     1
+    ]
+   ],
+   "drive": 5
+  },
+  {
+   "src": "square",
+   "freq": 110,
+   "len": 2.4,
+   "filter": {
+    "type": "lp",
+    "freq": 700
+   },
+   "amp": [
+    [
+     0,
+     1
+    ],
+    [
+     2.4,
+     1
+    ]
+   ],
+   "gain": -9
+  },
+  {
+   "src": "noise",
+   "len": 2.4,
+   "filter": {
+    "type": "bp",
+    "freq": 900,
+    "q": 0.8
+   },
+   "amp": [
+    [
+     0,
+     1
+    ],
+    [
+     2.4,
+     1
+    ]
+   ],
+   "gain": -20
+  }
+ ],
+ "fx": [
+  {
+   "type": "eq",
+   "bands": [
+    {
+     "type": "hp",
+     "freq": 130,
+     "slope": 24
+    }
+   ]
+  },
+  {
+   "type": "eq",
+   "bands": [
+    {
+     "type": "peak",
+     "freq": 520,
+     "gain": 5,
+     "q": 0.9
+    },
+    {
+     "type": "peak",
+     "freq": 1100,
+     "gain": 3,
+     "q": 1
+    }
+   ]
+  },
+  {
+   "type": "tremolo",
+   "rate": 27.5,
+   "depth": 0.35
+  }
+ ],
+ "fadeOut": 0
+}

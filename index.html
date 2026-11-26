@@ -51,8 +51,11 @@
         <div class="onboard" id="hud-onboard">乗車 0/60</div>
       </div>
       <div id="dwell" class="dwell hidden"><div class="dwell-label" id="dwell-label">乗降中…</div><div class="dwell-track"><i id="dwell-bar"></i></div></div>
+      <canvas id="speedlines"></canvas>
       <div id="toasts"></div>
       <div id="floats"></div>
+      <div id="bubbles"></div>
+      <div id="hint" class="hint hidden"><span class="hint-icon">💡</span><span id="hint-text"></span></div>
       <div id="bigmsg" class="bigmsg"><div id="bigmsg-main"></div><div id="bigmsg-sub"></div></div>
 
       <!-- タッチ操作 -->
@@ -78,6 +81,7 @@
         <div class="menu">
           <button class="btn primary" id="btn-start">出発進行！</button>
           <button class="btn" id="btn-howto">遊び方</button>
+          <button class="btn" id="btn-achievements">実績 <span id="ach-count"></span></button>
           <button class="btn" id="btn-settings">設定</button>
         </div>
         <div class="best" id="title-best"></div>
@@ -97,6 +101,8 @@
           <li>コーン・植木鉢・標識・看板・ガードレール・他の車にぶつけると<b>罰金</b>（同じ物は1回だけ）。</li>
           <li>路地は近道。でも障害物だらけ。<b>安全な大通りか、危険な近道か</b>は自分次第。</li>
           <li>制限時間内に終点へ。終点に早めに入って3秒停車すると、残りの停留所を通過して運行終了できます。</li>
+          <li>ブレーキは長く踏むほど強くなります。高速から思いきり踏むと<b>急ブレーキ</b>で乗客に怒られます。</li>
+          <li>自己ベストの走りは<b>ゴースト</b>として次の運行に現れます。<b>実績</b>は 16 種類。</li>
         </ol>
         <table class="price">
           <tr><th>コーン・植木鉢</th><td>−¥200</td></tr>
@@ -105,6 +111,7 @@
           <tr><th>他車への衝突</th><td>−¥3,000</td></tr>
           <tr><th>激突で乗客転倒</th><td>−¥500</td></tr>
           <tr><th>路面へ復帰（R）</th><td>−¥1,000</td></tr>
+          <tr><th>急ブレーキ（時速45km以上で強く）</th><td>−¥300</td></tr>
         </table>
         <h3>操作</h3>
         <div class="controls-grid">
@@ -124,7 +131,9 @@
     <section id="screen-settings" class="screen hidden">
       <div class="card scroll">
         <h2>設定</h2>
-        <label class="row"><span>音量</span><input type="range" id="set-volume" min="0" max="1" step="0.05" /></label>
+        <label class="row"><span>全体の音量</span><input type="range" id="set-volume" min="0" max="1" step="0.05" /></label>
+        <label class="row"><span>BGM</span><input type="range" id="set-bgm" min="0" max="1" step="0.05" /></label>
+        <label class="row"><span>効果音</span><input type="range" id="set-sfx" min="0" max="1" step="0.05" /></label>
         <label class="row"><span>画質</span>
           <select id="set-quality">
             <option value="auto">自動</option>
@@ -142,8 +151,20 @@
           </select>
         </label>
         <label class="row"><span>ミニマップ</span><input type="checkbox" id="set-minimap" /></label>
+        <label class="row"><span>自己ベストのゴーストを表示</span><input type="checkbox" id="set-ghost" /></label>
+        <label class="row"><span>初心者向けヒント</span><input type="checkbox" id="set-hints" /></label>
         <p class="note" id="set-note">※ 画質の一部（建物の密度など）は再読み込み後に反映されます。</p>
         <button class="btn" id="btn-fullscreen">全画面にする</button>
+        <button class="btn" id="btn-hints-reset">ヒントをもう一度見る</button>
+        <button class="btn primary" data-back>もどる</button>
+      </div>
+    </section>
+
+    <!-- 実績 -->
+    <section id="screen-achievements" class="screen hidden">
+      <div class="card scroll">
+        <h2>実績 <small id="ach-summary"></small></h2>
+        <ul class="ach-list" id="ach-list"></ul>
         <button class="btn primary" data-back>もどる</button>
       </div>
     </section>
@@ -177,12 +198,14 @@
           <table class="breakdown" id="res-breakdown"></table>
           <table class="damage" id="res-damage"></table>
         </div>
-        <details class="stops-detail" open>
+        <div class="res-unlocked hidden" id="res-unlocked"></div>
+        <details class="stops-detail">
           <summary>停留所別の到着実績</summary>
           <table class="stops-table" id="res-stops"></table>
         </details>
         <div class="menu row-menu">
           <button class="btn primary" id="btn-retry">もう一度運行する</button>
+          <button class="btn" id="btn-share">結果を画像でシェア</button>
           <button class="btn" id="btn-title">タイトルへ</button>
         </div>
       </div>

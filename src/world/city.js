@@ -904,8 +904,15 @@ export function buildCity(scene, { decorDensity = 1, stops = [] } = {}) {
   }
 
   // ---------- メッシュ化 ----------
+  // 地面は上から見た平面に UV を割り当てて、粒状のテクスチャを敷く
+  const groundGeo = B.ground.build();
+  {
+    const pos = groundGeo.getAttribute('position'), uv = groundGeo.getAttribute('uv');
+    for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / 6, pos.getZ(i) / 6);
+    uv.needsUpdate = true;
+  }
   const mats = {
-    ground: new THREE.MeshLambertMaterial({ vertexColors: true }),
+    ground: new THREE.MeshLambertMaterial({ vertexColors: true, map: TX.groundNoiseTexture() }),
     marks: new THREE.MeshLambertMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
     facade: new THREE.MeshLambertMaterial({ vertexColors: true, map: tex.windows }),
     house: new THREE.MeshLambertMaterial({ vertexColors: true, map: tex.house }),
@@ -918,7 +925,7 @@ export function buildCity(scene, { decorDensity = 1, stops = [] } = {}) {
   const meshes = {};
   for (const [k, b] of Object.entries(B)) {
     if (!b.vertexCount || !mats[k]) continue;
-    const m = new THREE.Mesh(b.build(), mats[k]);
+    const m = new THREE.Mesh(k === 'ground' ? groundGeo : b.build(), mats[k]);
     m.name = k;
     m.matrixAutoUpdate = false;
     m.updateMatrix();

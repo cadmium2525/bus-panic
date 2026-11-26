@@ -14,6 +14,25 @@ import { remainingPassengers, resolveStop, dwellTime, computeScore, rankFor, Pen
 import { SpatialHash } from '../core/collision.js';
 import { TILE, N, T, tileAt, isDrivableType, solidRectForTile, shortestPath, tileCenter, H_ROADS, V_ROADS, ALLEYS } from '../world/map.js';
 import { Autopilot } from './autopilot.js';
+import { Effects } from '../entities/effects.js';
+import { GhostRecorder, GhostBus, loadGhost } from './ghost.js';
+import { Hints } from './hints.js';
+import { unlockAchievement, achievementById, achievementsForResult } from './achievements.js';
+import { loadBest } from '../core/storage.js';
+
+// 乗客のひとこと
+const VOICES = {
+  turn: ['うわぁっ！', 'ひぃっ', 'つり革〜！', '曲がりすぎ！'],
+  fast: ['飛ばしすぎ！', 'こわい…', '速っ！'],
+  hit: ['あっ…', 'なにか轢いた？', 'ちょっと！'],
+  car: ['ぎゃああ！', '事故った！？', '保険〜！'],
+  rail: ['ガードレールが！', '川に落ちる〜！'],
+  ontime: ['定刻だ！', 'さすが！', '間に合った〜'],
+  late: ['遅いよ〜', '会社に遅れる！', 'もう歩こうかと…'],
+  brake: ['おっとっと', '急ブレーキ！', 'あぶなっ'],
+  splash: ['ドボンって…', '川に落ちたぞ'],
+};
+const pickOne = (a) => a[Math.floor(Math.random() * a.length)];
 
 const FOG_COLOR = 0xd7e7f2;
 
@@ -66,20 +85,18 @@ export class Game {
     this.staticHash = new SpatialHash(16);
     for (const c of this.city.colliders.circles) this.staticHash.insertAABB(c, c.x - c.r, c.z - c.r, c.x + c.r, c.z + c.r);
 
-    this.props = new Props(this.scene, this.city.spawns, {
-      onHit: (it, t) => this._onPropHit(it, t),
-      shadows: this.q.shadows,
-    });
-    this.props.onSplash = (it) => {
-      this.audio.sfxSplash();
-      this._floatWorld(it.x, -1, it.z, 'ドボン！', 'splash');
-    };
+    this._makeProps();
+    this.effects = new Effects(this.scene, { lowQuality: this.qualityKey === 'low' });
+    this.ghost = new GhostBus(this.scene);
+    this.hints = new Hints();
+    this.timeScale = 1;
+    this.slowmo = 0;
     this.bus = new Bus(this.scene);
     this.traffic = new Traffic(this.scene, this.city.intersections, {
       count: this.q.cars,
       onHit: (car, t) => this._onCarHit(car, t),
       onHonk: (car) => {
-        if (this.state === 'playing' && Math.hypot(car.x - this.bus.x, car.z - this.bus.z) < 40) this.audio.sfxHorn();
+        if (this.state === 'playing' && Math.hypot(car.x - this.bus.x, car.z - this.bus.z) < 40) this.audio.play('honk', { volume: 0.45 });
       },
     });
     this.passengers = new Passengers(this.scene, 260);
@@ -277,7 +294,23 @@ export class Game {
       finished: false,
       resets: 0,
       maxSpeed: 0,
+      brakeCd: 0,
+      voiceCd: 0,
+      fastCd: 0,
+      chimed: new Set(),
+      alleys: new Set(),
+      driftT: 0,
+      stuckT: 0,
+      exhaustT: 0,
+      dustT: 0,
+      warned: false,
+      lastTick: -1,
+      unlocked: [],
+      recorder: new GhostRecorder(),
     };
+    this.effects.clear();
+    this.ghost.setData(this.settings.ghost !== false ? loadGhost() : null);
+    this.bus.setOnboard(0, RULES.capacity);
     // デバッグ: 途中の停留所から開始
     const from = this.debug.startStop | 0;
     if (from > 0 && from < this.stops.length) {
@@ -293,7 +326,9 @@ export class Game {
     this.hud.show(true);
     this.ui.showScreen(null);
     if (!(this.debug.startStop > 0)) this._setMarker(this.stops[0]);
+    this.audio.stopBgm(0.5);
     this.audio.startEngine();
+    this.audio.play('count');
     this.audio.say('ご乗車ありがとうございます。このバスは、げんかいえき行きです。');
     this._camSnap = true;
   }
@@ -307,10 +342,19 @@ export class Game {
     }
     this.props.material.dispose();
     this.props.atlas.dispose();
+    this._makeProps();
+  }
+
+  _makeProps() {
     this.props = new Props(this.scene, this.city.spawns, { onHit: (it, t) => this._onPropHit(it, t), shadows: this.q.shadows });
     this.props.onSplash = (it) => {
-      this.audio.sfxSplash();
+      this.audio.play('splash');
+      this.effects.splash(it.x, it.z);
       this._floatWorld(it.x, -1, it.z, 'ドボン！', 'splash');
+      if (this.state === 'playing') {
+        this._voice('splash');
+        this._unlock('dobon');
+      }
     };
   }
 
@@ -319,7 +363,9 @@ export class Game {
     this._pausedFrom = this.state;
     this.state = 'paused';
     this.input.releaseAll();
-    this.audio.suspend();
+    this.audio.duck(true);
+    this.audio.play('ui_pause');
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
     this.ui.showScreen('pause');
   }
 
@@ -327,6 +373,7 @@ export class Game {
     if (this.state !== 'paused') return;
     this.state = this._pausedFrom || 'playing';
     this.audio.resume();
+    this.audio.duck(false);
     this.ui.showScreen(null);
     this._last = performance.now();
   }
@@ -334,6 +381,10 @@ export class Game {
   toTitle() {
     this.state = 'title';
     this.audio.stopEngine();
+    this.audio.duck(false);
+    this.audio.playBgm('title');
+    this.effects.clear();
+    this.ghost.setData(null);
     this.hud.show(false);
     this.hud.hideBig();
     this.hud.dwell(null);
@@ -348,11 +399,14 @@ export class Game {
     run.finished = true;
     this.state = 'result';
     this.audio.stopEngine();
+    this.audio.stopBgm(0.3);
+    this.ghost.setData(null);
     this.hud.dwell(null);
+    this.hud.speedLines(0);
     const allStops = reason === 'clear' && run.stops.every((s) => s.status === 'done');
     const ledger = run.ledger;
     const damage = ledger.total((it) => ['cone', 'sign', 'guardrail', 'car'].includes(it.kind));
-    const other = ledger.total((it) => ['reset', 'impact'].includes(it.kind));
+    const other = ledger.total((it) => ['reset', 'impact', 'brake'].includes(it.kind));
     const score = computeScore({ fare: run.fare, onTimeBonus: run.bonus, allStops, damage, other });
     const rank = rankFor(score.total);
     const result = {
@@ -378,6 +432,7 @@ export class Game {
         car: ledger.count('car'),
         impact: ledger.count('impact'),
         reset: ledger.count('reset'),
+        brake: ledger.count('brake'),
       },
       damageByKind: {
         cone: ledger.total((it) => it.kind === 'cone'),
@@ -386,47 +441,62 @@ export class Game {
         car: ledger.total((it) => it.kind === 'car'),
       },
       time: run.t,
+      maxSpeedKmh: Math.round(run.maxSpeed * 3.6),
     };
+    // 自己ベストならゴーストを保存（storage 側でベスト判定する前に比較）
+    const prevBest = loadBest();
+    result.isBest = !prevBest || result.total > prevBest.total;
+    if (result.isBest && !this.autopilot) run.recorder.save(result.total);
+    // 実績
+    for (const id of achievementsForResult(result)) this._unlock(id, false);
+    result.unlocked = run.unlocked.map(achievementById).filter(Boolean);
     this.lastResult = result;
     if (reason === 'clear') {
-      this.audio.sfxFanfare();
+      this.audio.jingle('clear');
       this.audio.say('終点、げんかいえきです。ご乗車ありがとうございました。');
-    } else this.audio.sfxPenalty();
+      this.effects.confetti(this.bus.x, 8, this.bus.z, 70);
+    } else this.audio.jingle('timeout');
     this.hud.big(reason === 'clear' ? '終点到着！' : '時間切れ…', reason === 'clear' ? 'おつかれさまでした' : '運行打ち切り', 2.2, reason === 'clear' ? 'good' : 'bad');
     setTimeout(() => {
       if (this.state === 'result' && this.lastResult === result) {
         this.hud.show(false);
         this.ui.showResult(result);
       }
-    }, 2300);
+    }, 2600);
   }
 
   // ---------------- イベント ----------------
   _onPropHit(it, t) {
     const run = this.run;
-    if (!run || this.state !== 'playing' || it.noCharge) {
-      this._propSfx(it.kind.cls);
-      return;
-    }
+    this._propSfx(it);
+    this.effects.hitProp(it.type, it.x, it.y, it.z, this.bus.vx * 0.5, this.bus.vz * 0.5);
+    if (!run || this.state !== 'playing' || it.noCharge) return;
     const p = PENALTY[it.kind.cls];
     if (run.ledger.charge(it.id, it.kind.cls, p.amount, it.kind.label, run.t)) {
       this._floatWorld(it.x, 1.5, it.z, `−¥${p.amount.toLocaleString()} ${it.kind.label}`, 'fine');
-      this._propSfx(it.kind.cls);
-      if (it.kind.cls === 'guardrail') this.cam.shake = Math.max(this.cam.shake, 0.35);
+      if (it.kind.cls === 'guardrail') {
+        this.cam.shake = Math.max(this.cam.shake, 0.35);
+        this._voice('rail');
+      } else this._voice('hit', 0.5);
+      this._hint('penalty');
     }
   }
 
-  _propSfx(cls) {
-    if (cls === 'cone') this.audio.sfxCone();
-    else if (cls === 'sign') this.audio.sfxSign();
-    else if (cls === 'guardrail') this.audio.sfxGuardrail();
+  _propSfx(it) {
+    const key = { cone: 'cone', pot: 'pot', sign: 'sign', board: 'board', nobori: 'nobori', barricade: 'board', guardrail: 'guardrail' }[it.type] || 'cone';
+    this.audio.play(key, { volume: key === 'cone' ? 0.7 : 0.85, rate: 0.94 + Math.random() * 0.12, max: 3 });
   }
 
   _onCarHit(car, t) {
     const run = this.run;
-    this.audio.sfxCar();
+    this.audio.play('car', { volume: 1 });
+    this.audio.play('glass', { volume: 0.55, delay: 0.03 });
     this.cam.shake = Math.max(this.cam.shake, 0.7);
+    this.effects.carCrash(car.x, car.z, this.bus.vx * 0.4, this.bus.vz * 0.4);
+    // ヒットストップ（一瞬スローモーション）
+    this.slowmo = 0.45;
     if (!run || this.state !== 'playing') return;
+    this._voice('car');
     car.gen = (car.gen || 0) + 1;
     const id = `${car.id}#${car.gen}`;
     if (run.ledger.charge(id, 'car', PENALTY.car.amount, PENALTY.car.label, run.t)) {
@@ -454,7 +524,8 @@ export class Game {
     run.ledger.chargeEvent('reset', RULES.resetPenalty, '路面復帰', run.t);
     run.resets++;
     this.hud.toast(`路面へ復帰（ペナルティ ¥${RULES.resetPenalty.toLocaleString()}）`, 'bad');
-    this.audio.sfxPenalty();
+    this.audio.play('reset');
+    this.effects.dust(spot.x, spot.z, 6, ['#ffffff', '#dff4ff']);
     this._camSnap = true;
   }
 
@@ -510,13 +581,19 @@ export class Game {
   frame(dt) {
     const inp = this.input;
     if (this.debug.timescale) dt *= this.debug.timescale;
+    // ヒットストップ
+    const realDt = dt;
+    if (this.slowmo > 0) {
+      this.slowmo -= realDt;
+      dt *= 0.3;
+    }
     if (inp.consume('Escape') || inp.consume('KeyP')) {
       if (this.state === 'paused') this.resume();
       else this.pause();
     }
     if (inp.consume('KeyR')) this.resetBus();
     if (inp.consume('KeyM')) this.ui.toggleMinimap();
-    if (inp.consume('KeyH') && this.state === 'playing') this.audio.sfxBusHorn();
+    if (inp.consume('KeyH') && this.state === 'playing') this.audio.play('horn', { max: 1 });
 
     if (this.state !== 'paused') {
       this.time += dt;
@@ -534,7 +611,9 @@ export class Game {
     const pose = this.bus.sync(alpha);
     this.traffic.sync(alpha);
     this.passengers.update(this.state === 'paused' ? 0 : dt, this.time);
-    this._updateCamera(dt, pose);
+    if (this.state !== 'paused') this.effects.update(dt);
+    this.ghost.update(this.run ? this.run.t : 0, this.state === 'playing' || this.state === 'paused', pose.x, pose.z);
+    this._updateCamera(realDt, pose);
     this._updateMarker(dt);
     this.sky.update(this.camera);
     if (this.q.shadows) {
@@ -583,11 +662,12 @@ export class Game {
         run.lastCount = n;
         if (n > 0) {
           this.hud.big(String(n), '発車準備', 0.9, 'count');
-          this.audio.sfxCount(false);
         } else {
-          this.hud.big('発車オーライ！', '1番 ' + this.stops[0].name + ' へ', 1.4, 'go');
-          this.audio.sfxCount(true);
+          this.hud.big('発車オーライ！', `${run.next + 1}番 ${this.stops[run.next].name} へ`, 1.4, 'go');
+          this.audio.play('go', { volume: 0.8 });
+          this.audio.playBgm('drive', { fade: 1.2 });
           this.state = 'playing';
+          this._hint('start');
         }
       }
       return;
@@ -596,20 +676,36 @@ export class Game {
 
     run.t += dt;
     run.maxSpeed = Math.max(run.maxSpeed, this.bus.speed);
-    this.audio.updateEngine(this.bus.speed, input.throttle);
+    const bus = this.bus;
+    const skidding = (bus.slip > 2.6 && bus.speed > 4) || (bus.decel > 9.5 && bus.speed > 5) || (bus.handbrake && bus.speed > 4);
+    this.audio.updateEngine(bus.speed, input.throttle, skidding ? Math.min(1, bus.speed / 12) : 0);
+    run.recorder.sample(dt, bus.x, bus.z, bus.h);
 
     // 衝撃で乗客転倒
     run.impactCd -= dt;
     if (res.impact > 1.8) {
-      this.audio.sfxWall(res.impact);
+      this.audio.play('wall', { volume: Math.min(1, 0.35 + res.impact * 0.06), max: 2 });
       this.cam.shake = Math.max(this.cam.shake, Math.min(0.8, res.impact * 0.06));
+      this.effects.dust(bus.x + Math.sin(bus.h) * 4, bus.z + Math.cos(bus.h) * 4, 3, ['#c9c4b6', '#b5ada0']);
     }
     if (res.impact * 3.6 >= RULES.impactSpeedKmh && run.onboard > 0 && run.impactCd <= 0) {
       run.impactCd = 2;
       run.ledger.chargeEvent('impact', RULES.impactPenalty, '乗客転倒', run.t);
       this.hud.toast(`激突！ 乗客が転倒 −¥${RULES.impactPenalty}`, 'bad');
+      this.audio.play('fall', { volume: 0.8 });
     }
 
+    // 急ブレーキ（強く長く踏んだまま高速から減速）
+    run.brakeCd -= dt;
+    if (bus.decel > RULES.suddenBrakeDecel && bus.speed * 3.6 > RULES.suddenBrakeKmh && run.onboard > 0 && run.brakeCd <= 0) {
+      run.brakeCd = 4;
+      run.ledger.chargeEvent('brake', RULES.suddenBrakePenalty, '急ブレーキ', run.t);
+      this.hud.toast(`急ブレーキ！ 乗客がよろけた −¥${RULES.suddenBrakePenalty}`, 'bad');
+      this._voice('brake', 1, true);
+      this._hint('brake');
+    }
+
+    this._updateDrivingFx(dt, input, skidding);
     this._updateStops(dt);
 
     if (run.t >= run.limit && !run.finished) this._finish('timeout');
@@ -629,7 +725,11 @@ export class Game {
       const n = remainingPassengers(s.wait, run.t - s.scheduled);
       if (n < st.shown) {
         this.passengers.setWaiting(s, n);
-        if (i === run.next) this.hud.toast(`${s.name}の客が待ちきれずに帰った… 残り${n}人`, 'warn');
+        if (i === run.next) {
+          this.hud.toast(`${s.name}の客が待ちきれずに帰った… 残り${n}人`, 'warn');
+          this.audio.play('leave', { volume: 0.6 });
+          this._hint('late');
+        }
         st.shown = n;
       }
     }
@@ -649,7 +749,7 @@ export class Game {
         run.serving = -1;
         bus.doorTarget = 0;
         this.hud.dwell(null);
-        this.audio.sfxDoor();
+        this.audio.play('door', { volume: 0.7 });
         if (s.terminal) {
           this._finish('clear');
           return;
@@ -657,7 +757,6 @@ export class Game {
         run.next = i + 1;
         const ns = this.stops[run.next];
         this._setMarker(ns);
-        this.audio.sfxChime();
         this.audio.say(`発車します。次は、${ns.kana}です。`);
         this.hud.toast(`次は ${ns.name}`, 'info');
       }
@@ -716,7 +815,16 @@ export class Game {
     bus.doorTarget = 1;
     bus.load = run.onboard / RULES.capacity;
     if (res.bonus) run.bonus += res.bonus;
-    this.audio.sfxDoor();
+    this.bus.setOnboard(run.onboard, RULES.capacity);
+    this.audio.play('door', { volume: 0.7 });
+    if (res.onTime) {
+      this.audio.play('ontime', { volume: 0.8 });
+      this._voice('ontime', 0.8, true);
+      if (res.delay > -1) this._unlock('justintime');
+    } else {
+      this.audio.play('late', { volume: 0.7 });
+      if (res.lost > 0) this._voice('late', 0.9, true);
+    }
 
     // 乗客の動き
     const fx = Math.sin(bus.h), fz = Math.cos(bus.h);
@@ -750,8 +858,95 @@ export class Game {
     run.onboard++;
     run.fare += RULES.farePerPassenger;
     this.bus.load = run.onboard / RULES.capacity;
-    this.audio.sfxCoin();
+    this.bus.setOnboard(run.onboard, RULES.capacity);
+    if (run.onboard >= 45) this._unlock('full');
+    this.audio.play('coin', { volume: 0.45, rate: 0.97 + Math.random() * 0.08, max: 3 });
     this._floatWorld(this.bus.x, 3.6, this.bus.z, `+¥${RULES.farePerPassenger}`, 'fare');
+  }
+
+  /** 走行中の演出: タイヤ痕・土煙・排気・乗客のひとこと・実績・音楽の盛り上がり */
+  _updateDrivingFx(dt, input, skidding) {
+    const run = this.run;
+    const bus = this.bus;
+    this.effects.skid.add(bus.rearWheels(), bus.h, skidding);
+    run.dustT -= dt;
+    if (bus._onCurb() && bus.speed > 4 && run.dustT <= 0) {
+      run.dustT = 0.12;
+      const w = bus.rearWheels()[Math.random() < 0.5 ? 0 : 1];
+      this.effects.dust(w.x, w.z, 1);
+    }
+    if (skidding && bus.speed > 6 && run.dustT <= 0) {
+      run.dustT = 0.1;
+      const w = bus.rearWheels()[Math.random() < 0.5 ? 0 : 1];
+      this.effects.dust(w.x, w.z, 1, ['#d8d8d8', '#c4c4c4', '#e8e8e8']);
+    }
+    run.exhaustT -= dt;
+    if (input.throttle && bus.speed < 10 && run.exhaustT <= 0) {
+      run.exhaustT = 0.09;
+      const e = bus.exhaustPos();
+      this.effects.exhaust(e.x, e.y, e.z, -Math.sin(bus.h) * 1.5, -Math.cos(bus.h) * 1.5);
+    }
+    // 事故車の煙
+    for (const car of this.traffic.cars) {
+      if ((car.state === 'fly' || car.state === 'sink') && Math.random() < dt * 6) this.effects.wreckSmoke(car.x, car.z);
+    }
+    // 乗客のひとこと
+    run.voiceCd -= dt;
+    run.fastCd -= dt;
+    if (run.onboard > 0 && Math.abs(bus._aLat) > 8.5 && bus.speed > 8) this._voice('turn', 0.7);
+    if (run.onboard > 0 && bus.speed > 19 && run.fastCd <= 0) {
+      run.fastCd = 15;
+      this._voice('fast', 1);
+    }
+    // 実績（走りから判定できるもの）
+    if (bus.speed * 3.6 >= 72) this._unlock('speed');
+    if (bus.handbrake && bus.slip > 3) {
+      run.driftT += dt;
+      if (run.driftT > 3) this._unlock('drift');
+    } else run.driftT = 0;
+    const c = Math.floor(bus.x / TILE), r = Math.floor(bus.z / TILE);
+    if (tileAt(c, r) === T.ALLEY) {
+      const k = ALLEYS.findIndex((a) => c >= a.rect[0] && c <= a.rect[2] && r >= a.rect[1] && r <= a.rect[3]);
+      if (k >= 0 && !run.alleys.has(k)) {
+        run.alleys.add(k);
+        this.hud.toast(`近道：${ALLEYS[k].name}`, 'info');
+        if (run.alleys.size === ALLEYS.length) this._unlock('alleys');
+      }
+    }
+    // 動けなくなったときのヒント
+    if (input.throttle && bus.speed < 0.3 && run.serving < 0) {
+      run.stuckT += dt;
+      if (run.stuckT > 2.5) this._hint('stuck');
+    } else run.stuckT = 0;
+  }
+
+  /** バスの上に乗客のひとこと（chance で間引き、force でクールダウン無視） */
+  _voice(kind, chance = 1, force = false) {
+    const run = this.run;
+    if (!run || this.state !== 'playing' && this.state !== 'result') return;
+    if (!force && run.voiceCd > 0) return;
+    if (Math.random() > chance) return;
+    run.voiceCd = 3;
+    const v = new THREE.Vector3(this.bus.x, 4.2, this.bus.z).project(this.camera);
+    if (v.z > 1) return;
+    this.hud.bubble((v.x * 0.5 + 0.5) * this.viewW + (Math.random() - 0.5) * 60, (-v.y * 0.5 + 0.5) * this.viewH, pickOne(VOICES[kind]));
+  }
+
+  _hint(id) {
+    if (this.autopilot || this.settings.hints === false) return;
+    const text = this.hints.take(id);
+    if (text) this.hud.hint(text);
+  }
+
+  _unlock(id, toast = true) {
+    if (this.autopilot) return;
+    if (!unlockAchievement(id)) return;
+    const a = achievementById(id);
+    if (this.run) this.run.unlocked.push(id);
+    if (toast && a) {
+      this.hud.toast(`🏆 実績解除：${a.icon} ${a.name}`, 'achieve');
+      this.audio.play('achievement', { volume: 0.7 });
+    }
   }
 
   _updateMarker(dt) {
@@ -777,6 +972,30 @@ export class Game {
     const fx = Math.sin(bus.h), fz = Math.cos(bus.h);
     const ang = Math.atan2(fx * dz - fz * dx, fx * dx + fz * dz);
     const fine = run.ledger.total();
+    if (this.state === 'playing') {
+      const remain = run.limit - run.t;
+      // 遅れている・時間が少ないときは音楽を盛り上げる
+      const rush = remain < 60 || (st.status === 'pending' && delay > -4) ? 1 : 0;
+      this.audio.setRush(rush);
+      if (remain <= 30 && !run.warned) {
+        run.warned = true;
+        this.audio.play('alarm', { volume: 0.6 });
+        this.hud.toast('残り 30 秒！', 'bad');
+      }
+      const sec = Math.ceil(remain);
+      if (sec <= 10 && sec > 0 && sec !== run.lastTick) {
+        run.lastTick = sec;
+        this.audio.play('tick', { volume: 0.9 });
+      }
+      // 次の停留所に近づいたら「次、とまります」
+      if (dist < 85 && st.status === 'pending' && !run.chimed.has(idx)) {
+        run.chimed.add(idx);
+        this.audio.play('next_stop', { volume: 0.6 });
+        this.hud.toast(s.terminal ? '次は終点、限界駅です' : '次、とまります', 'info');
+        if (idx === 0) this._hint('stopZone');
+      }
+      this.hud.speedLines(bus.speed * 3.6);
+    }
     this.hud.update({
       nextIndex: idx,
       total: this.stops.length,

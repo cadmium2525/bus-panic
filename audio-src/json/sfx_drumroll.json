@@ -1,0 +1,16 @@
+{
+ "preset": "drumroll",
+ "length": 1.3,
+ "fx": [
+  {
+   "type": "eq",
+   "bands": [
+    {
+     "type": "hp",
+     "freq": 150,
+     "slope": 24
+    }
+   ]
+  }
+ ]
+}

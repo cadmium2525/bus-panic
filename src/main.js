@@ -50,7 +50,11 @@ function boot() {
   if (params.get('quality')) settings.quality = params.get('quality');
   const audio = new Audio();
   audio.setVolume(settings.volume);
+  audio.setBgmVolume(settings.bgmVolume);
+  audio.setSfxVolume(settings.sfxVolume);
   audio.announce = settings.announce;
+  // 音源の取得は早めに始める（再生は最初の操作のあと）
+  audio.prefetch(['bgm:title', 'sfx:ui_click', 'sfx:ui_ok', 'sfx:ui_back', 'sfx:count', 'sfx:go']);
   const input = new Input();
   const hud = new Hud();
   const ui = new Screens({ settings, audio });
@@ -83,6 +87,7 @@ function boot() {
   }
   ui.attach(game);
   window.__game = game; // 動作確認用
+  if (params.has('debug')) import('./ui/share.js').then((m) => (window.__resultImage = m.resultImage));
 
   // タブ切替・画面オフで自動ポーズ
   document.addEventListener('visibilitychange', () => {
@@ -97,6 +102,20 @@ function boot() {
     loading.classList.add('done');
     setTimeout(() => loading.remove(), 500);
   });
+  // 最初の操作で音を有効にし、タイトル曲を流す（ブラウザの自動再生制限のため）
+  const firstTouch = () => {
+    audio.unlock();
+    if (game.state === 'title') audio.playBgm('title', { fade: 1.5 });
+    window.removeEventListener('pointerdown', firstTouch, true);
+    window.removeEventListener('keydown', firstTouch, true);
+  };
+  window.addEventListener('pointerdown', firstTouch, true);
+  window.addEventListener('keydown', firstTouch, true);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) audio.suspend();
+    else if (game.state !== 'paused') audio.resume();
+  });
+
   if (params.has('autostart')) game.startRun();
 }
 

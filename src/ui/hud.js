@@ -37,6 +37,78 @@ export class Hud {
     this._bigTimer = 0;
     this._last = {};
     this.floatPool = [];
+    this.el.bubbles = $('bubbles');
+    this.el.hint = $('hint');
+    this.el.hintText = $('hint-text');
+    this._initSpeedLines();
+  }
+
+  /** 乗客のひとこと（吹き出し） */
+  bubble(x, y, text) {
+    const d = document.createElement('div');
+    d.className = 'bubble';
+    d.textContent = text;
+    d.style.left = `${Math.max(70, Math.min(window.innerWidth - 70, x))}px`;
+    d.style.top = `${Math.max(90, y)}px`;
+    this.el.bubbles.appendChild(d);
+    while (this.el.bubbles.children.length > 3) this.el.bubbles.firstChild.remove();
+    setTimeout(() => d.remove(), 1900);
+  }
+
+  /** 初心者向けのヒント */
+  hint(text) {
+    const e = this.el;
+    e.hintText.textContent = text;
+    e.hint.classList.remove('hidden');
+    e.hint.classList.remove('show');
+    void e.hint.offsetWidth;
+    e.hint.classList.add('show');
+    clearTimeout(this._hintTimer);
+    this._hintTimer = setTimeout(() => e.hint.classList.add('hidden'), 6500);
+  }
+
+  // ---- スピード線（画面の端に流れる線） ----
+  _initSpeedLines() {
+    const c = (this.speedCanvas = $('speedlines'));
+    this.speedCtx = c.getContext('2d');
+    this.speedLevel = 0;
+    this.lines = Array.from({ length: 46 }, () => ({ a: Math.random() * Math.PI * 2, r: Math.random(), l: 0.1 + Math.random() * 0.2, w: 1 + Math.random() * 2 }));
+  }
+  speedLines(kmh) {
+    const c = this.speedCanvas;
+    const target = Math.max(0, Math.min(1, (kmh - 52) / 20));
+    this.speedLevel += (target - this.speedLevel) * 0.1;
+    const lv = this.speedLevel;
+    if (lv < 0.02) {
+      if (this._speedOn) {
+        this.speedCtx.clearRect(0, 0, c.width, c.height);
+        this._speedOn = false;
+      }
+      return;
+    }
+    this._speedOn = true;
+    const W = Math.round(window.innerWidth / 2), H = Math.round(window.innerHeight / 2);
+    if (c.width !== W || c.height !== H) {
+      c.width = W;
+      c.height = H;
+    }
+    const g = this.speedCtx;
+    g.clearRect(0, 0, W, H);
+    const cx = W / 2, cy = H * 0.45, R = Math.hypot(W, H) / 2;
+    g.strokeStyle = `rgba(255,255,255,${0.35 * lv})`;
+    for (const ln of this.lines) {
+      ln.r += 0.06 + lv * 0.05;
+      if (ln.r > 1) {
+        ln.r = 0.55 + Math.random() * 0.1;
+        ln.a = Math.random() * Math.PI * 2;
+      }
+      const r0 = R * ln.r, r1 = R * (ln.r + ln.l * lv);
+      g.lineWidth = ln.w;
+      g.beginPath();
+      g.moveTo(cx + Math.cos(ln.a) * r0, cy + Math.sin(ln.a) * r0);
+      g.lineTo(cx + Math.cos(ln.a) * r1, cy + Math.sin(ln.a) * r1);
+      g.stroke();
+    }
   }
 
   show(on) {

@@ -1,0 +1,26 @@
+{
+ "preset": "dokaan",
+ "fx": [
+  {
+   "type": "eq",
+   "bands": [
+    {
+     "type": "hp",
+     "freq": 140,
+     "slope": 24
+    }
+   ]
+  },
+  {
+   "type": "eq",
+   "bands": [
+    {
+     "type": "lowshelf",
+     "freq": 220,
+     "gain": -6
+    }
+   ]
+  }
+ ],
+ "loudCap": -12
+}

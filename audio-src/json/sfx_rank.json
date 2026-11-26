@@ -1,0 +1,25 @@
+{
+ "preset": "jajan",
+ "fx": [
+  {
+   "type": "eq",
+   "bands": [
+    {
+     "type": "hp",
+     "freq": 150,
+     "slope": 24
+    }
+   ]
+  },
+  {
+   "type": "eq",
+   "bands": [
+    {
+     "type": "lowshelf",
+     "freq": 160,
+     "gain": -3
+    }
+   ]
+  }
+ ]
+}

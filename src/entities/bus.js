@@ -20,11 +20,25 @@ function buildModel() {
 
   // 車体（側面にストライプと社名）
   const shell = new MeshBuilder(SIDE_PLAIN);
-  const uvSide = [[0, 0], [1, 0], [1, 1], [0, 1]];
-  shell.quad([W, y0, L], [W, y0, -L], [W, y1, -L], [W, y1, L], '#ffffff', uvSide); // 左（+x）
-  shell.quad([-W, y0, -L], [-W, y0, L], [-W, y1, L], [-W, y1, -L], '#ffffff', uvSide); // 右（-x）
+  const wy0 = 1.65, wy1 = 2.7; // 窓の帯
+  const v = (y) => (y - y0) / (y1 - y0);
+  // 側面（左 +x は前から後ろへ u が増える、右 -x は後ろから前へ）
+  const sideL = (za, zb, ya, yb) => shell.quad([W, ya, za], [W, ya, zb], [W, yb, zb], [W, yb, za], '#ffffff', [[(L - za) / (2 * L), v(ya)], [(L - zb) / (2 * L), v(ya)], [(L - zb) / (2 * L), v(yb)], [(L - za) / (2 * L), v(yb)]]);
+  const sideR = (za, zb, ya, yb) => shell.quad([-W, ya, za], [-W, ya, zb], [-W, yb, zb], [-W, yb, za], '#ffffff', [[(za + L) / (2 * L), v(ya)], [(zb + L) / (2 * L), v(ya)], [(zb + L) / (2 * L), v(yb)], [(za + L) / (2 * L), v(yb)]]);
+  sideL(L, -L, y0, wy0);
+  sideL(L, -L, wy1, y1);
+  sideL(L, 3.2, wy0, wy1);
+  sideL(-4.7, -L, wy0, wy1);
+  sideR(-L, L, y0, wy0);
+  sideR(-L, L, wy1, y1);
+  sideR(4.7, L, wy0, wy1);
+  sideR(-L, -4.7, wy0, wy1);
   shell.quad([-W, y0, L], [W, y0, L], [W, y1, L], [-W, y1, L], '#f7f5ee'); // 前
-  shell.quad([W, y0, -L], [-W, y0, -L], [-W, y1, -L], [W, y1, -L], '#f7f5ee'); // 後
+  // 後面（後ろの窓の部分はくり抜く）
+  shell.quad([W, y0, -L], [-W, y0, -L], [-W, 1.9, -L], [W, 1.9, -L], '#f7f5ee');
+  shell.quad([W, 2.7, -L], [-W, 2.7, -L], [-W, y1, -L], [W, y1, -L], '#f7f5ee');
+  shell.quad([W, 1.9, -L], [W - 0.3, 1.9, -L], [W - 0.3, 2.7, -L], [W, 2.7, -L], '#f7f5ee');
+  shell.quad([-W + 0.3, 1.9, -L], [-W, 1.9, -L], [-W, 2.7, -L], [-W + 0.3, 2.7, -L], '#f7f5ee');
   shell.quad([-W, y1, L], [W, y1, L], [W, y1, -L], [-W, y1, -L], '#e9e7df'); // 屋根
   shell.quad([-W, y0, -L], [W, y0, -L], [W, y0, L], [-W, y0, L], '#333'); // 床下
   const shellMat = new THREE.MeshLambertMaterial({ map: sideTex, vertexColors: true });
@@ -36,17 +50,53 @@ function buildModel() {
   const parts = new MeshBuilder();
   const glass = '#22313c';
   const e = 0.015;
-  // 側窓
-  parts.box(W, 1.65, -4.7, W + e, 2.7, 3.2, glass, { top: false });
-  parts.box(-W - e, 1.65, -4.7, -W, 2.7, 4.7, glass, { top: false });
+  // 側窓・前後のガラスは半透明（車内の乗客が見える）
+  const glassB = new MeshBuilder();
+  glassB.quad([W + e, 1.65, 3.2], [W + e, 1.65, -4.7], [W + e, 2.7, -4.7], [W + e, 2.7, 3.2], glass);
+  glassB.quad([-W - e, 1.65, -4.7], [-W - e, 1.65, 4.7], [-W - e, 2.7, 4.7], [-W - e, 2.7, -4.7], glass);
+  glassB.quad([-W + 0.1, 1.0, L + e], [W - 0.1, 1.0, L + e], [W - 0.1, 2.75, L + e], [-W + 0.1, 2.75, L + e], glass);
+  glassB.quad([W - 0.3, 1.9, -L - e], [-W + 0.3, 1.9, -L - e], [-W + 0.3, 2.7, -L - e], [W - 0.3, 2.7, -L - e], glass);
+  const glassMesh = new THREE.Mesh(glassB.build(), new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.5, depthWrite: false }));
+  glassMesh.renderOrder = 2;
+  body.add(glassMesh);
+  // 車内（暗い内壁・座席の背もたれ）
+  const inner = new MeshBuilder();
+  inner.box(-W + 0.05, 0.45, -L + 0.05, W - 0.05, 3.0, L - 0.05, '#3a3f45', { top: false, bottom: true });
+  const innerMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.BackSide });
+  const innerMesh = new THREE.Mesh(inner.build(), innerMat);
+  body.add(innerMesh);
+  // 乗客の頭（乗車人数に応じて表示数が変わる）
+  const headGeo = new MeshBuilder();
+  headGeo.blob(0, 0, 0, 0.17, '#f1c9a5', 0.2);
+  headGeo.blob(0, 0.1, -0.02, 0.17, '#2a1f1a', 0.1);
+  // 0 番目は運転手（前の右側）、続いて座席・立ち客
+  const seats = [[-0.75, 1.95, 4.55]];
+  const rows = [];
+  for (let z = -4.1; z < 3.2; z += 0.9) rows.push(z);
+  // 前から順に埋まるように並べる
+  rows.reverse().forEach((z) => { seats.push([0.75, 1.88, z], [-0.75, 1.88, z]); });
+  for (let z = 2.6; z > -3.8; z -= 0.75) seats.push([((Math.abs(z) * 7) % 0.5) - 0.25, 2.05, z]); // 立っている人
+  const heads = new THREE.InstancedMesh(headGeo.build(), new THREE.MeshLambertMaterial({ vertexColors: true }), seats.length);
+  const dm = new THREE.Object3D();
+  seats.forEach((p, i) => {
+    dm.position.set(p[0], p[1], p[2]);
+    dm.rotation.y = i === 0 ? 0 : Math.PI + ((i * 1.7) % 1) - 0.5;
+    dm.updateMatrix();
+    heads.setMatrixAt(i, dm.matrix);
+  });
+  heads.count = 1;
+  body.add(heads);
+  // 座席の背もたれ
+  for (const z of rows) for (const sx of [1, -1]) parts.box(sx * 0.75 - 0.35, 0.9, z - 0.38, sx * 0.75 + 0.35, 1.75, z - 0.28, '#2f6f8f');
   // 運転席側の窓枠（柱）
   for (let z = -3.7; z < 4.6; z += 1.45) {
     parts.box(W + e, 1.65, z, W + 2 * e, 2.7, z + 0.1, '#e8e6de', { top: false });
     parts.box(-W - 2 * e, 1.65, z, -W - e, 2.7, z + 0.1, '#e8e6de', { top: false });
   }
-  // 前面ガラス・後面ガラス
-  parts.box(-W + 0.1, 1.0, L, W - 0.1, 2.75, L + e, glass, { top: false });
-  parts.box(-W + 0.3, 1.9, -L - e, W - 0.3, 2.7, -L, glass, { top: false });
+  // 後面: エンジングリル・反射板・ロゴ板
+  for (let k = 0; k < 5; k++) parts.box(-0.9, 0.78 + k * 0.13, -L - 0.03, 0.9, 0.84 + k * 0.13, -L, '#3b3f44', { top: false });
+  for (const sx of [1, -1]) parts.box(sx * 0.95 - 0.12, 0.62, -L - 0.03, sx * 0.95 + 0.12, 0.72, -L, '#c0181c', { top: false });
+  parts.box(-W, 1.55, -L - 0.02, W, 1.65, -L, '#1f8a4c', { top: false });
   // バンパー
   parts.box(-W - 0.02, 0.3, L - 0.05, W + 0.02, 0.72, L + 0.12, '#2b2b2b');
   parts.box(-W - 0.02, 0.3, -L - 0.12, W + 0.02, 0.72, -L + 0.05, '#2b2b2b');
@@ -149,7 +199,13 @@ function buildModel() {
   blob.renderOrder = 1;
   root.add(blob);
 
-  return { root, body, wheels, doors, tailMat, headMat, blinkMatL, blinkMatR, blob };
+  // 後ろの行先表示
+  const destRear = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.3), new THREE.MeshBasicMaterial({ map: destinationTexture('限界駅') }));
+  destRear.position.set(0, 2.85, -L - 0.03);
+  destRear.rotation.y = Math.PI;
+  body.add(destRear);
+
+  return { root, body, wheels, doors, tailMat, headMat, blinkMatL, blinkMatR, blob, heads };
 }
 
 export class Bus {
@@ -188,6 +244,32 @@ export class Bus {
     this.lastImpact = 0;
     this.blink = 0;
     this.reverseHold = 0;
+    this.brakeHold = 0;
+    this.slip = 0;
+    this.decel = 0;
+    this._aLat = 0;
+    this._aLong = 0;
+  }
+
+  /** 乗車人数に応じて車内の頭を表示（0 番目は運転手） */
+  setOnboard(n, capacity) {
+    const h = this.model.heads;
+    const seats = h.instanceMatrix.count - 1;
+    h.count = 1 + Math.min(seats, Math.round((n / capacity) * seats * 1.15));
+  }
+
+  /** 後輪の位置（タイヤ痕用） */
+  rearWheels() {
+    const fx = Math.sin(this.h), fz = Math.cos(this.h);
+    const rx = -fz, rz = fx;
+    const a = -BUS.wheelBase / 2 + 0.2, w = BUS.width / 2 - 0.18;
+    return [-1, 1].map((sd) => ({ x: this.x + fx * a + rx * w * sd, z: this.z + fz * a + rz * w * sd, y: this.lift }));
+  }
+  /** 排気管の位置（車体後部の左下） */
+  exhaustPos() {
+    const fx = Math.sin(this.h), fz = Math.cos(this.h);
+    const rx = -fz, rz = fx;
+    return { x: this.x - fx * (BUS.length / 2 + 0.2) - rx * 0.8, y: 0.45 + this.lift, z: this.z - fz * (BUS.length / 2 + 0.2) - rz * 0.8 };
   }
 
   get forward() {
@@ -232,8 +314,12 @@ export class Bus {
     if (input.hold) this.reverseHold = 0;
     else if (input.brake && !input.throttle && Math.abs(vf) < 0.4) this.reverseHold += dt;
     else if (!input.brake) this.reverseHold = 0;
+    // ブレーキは踏み続けるほど強くなる（軽く踏めば急ブレーキにならない）
+    if (input.brake && !input.hold && vf > 0.4) this.brakeHold += dt;
+    else this.brakeHold = 0;
+    const brakeForce = BUS.brake * (0.45 + 0.55 * Math.min(1, this.brakeHold / 0.6));
     if (input.brake && !input.hold) {
-      if (vf > 0.4) along -= BUS.brake * (0.85 + 0.15 * loadK);
+      if (vf > 0.4) along -= brakeForce * (0.85 + 0.15 * loadK);
       else if (!input.throttle && (this.reverseHold > 0.35 || vf < -0.4)) along -= vf > -BUS.maxReverse ? BUS.reverseAccel : 0;
       else if (!input.throttle) vf *= Math.exp(-12 * dt);
     }
@@ -279,6 +365,9 @@ export class Bus {
     this._aLat = aLat;
     this._aLong = aLong;
     this.vf = vf;
+    this.slip = Math.abs(vl);
+    this.decel = this.braking ? -aLong : 0;
+    this.handbrake = !!input.handbrake;
 
     // 衝突
     const before = Math.hypot(this.vx, this.vz);

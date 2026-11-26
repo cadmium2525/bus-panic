@@ -9,6 +9,9 @@ export const RULES = {
   resetPenalty: 1000, // R: 路面復帰ペナルティ
   impactPenalty: 500, // 激しい衝撃で乗客転倒（急停止・衝撃）
   impactSpeedKmh: 28, // この速度以上の減速を伴う衝突で乗客転倒
+  suddenBrakePenalty: 300, // 急ブレーキ（満足度減点の代わりに「その他ペナルティ」）
+  suddenBrakeKmh: 45, // この速度以上で
+  suddenBrakeDecel: 10.5, // この減速度（m/s²）を超えると急ブレーキ
   stopSpeedKmh: 5, // この速度以下で停留所の停車判定
   dwellBaseSec: 1.2, // 乗降処理の基本時間
   dwellPerPersonSec: 0.12, // 1人あたりの乗降時間
