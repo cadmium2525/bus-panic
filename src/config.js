@@ -15,7 +15,7 @@ export const RULES = {
   capacity: 60, // 定員
   timeLimitMarginSec: 75, // 終点の定刻 + この秒数 = 制限時間
   startClockSec: 8 * 3600, // 8:00:00 発
-  scheduleSpeed: 10.5, // 時刻表作成用の想定平均速度 (m/s)
+  scheduleSpeed: 10.2, // 時刻表作成用の想定平均速度 (m/s)。上手な運転＋近道で定時に間に合う程度
   scheduleDwellSec: 4, // 時刻表作成用の停車時間
   firstStopSlackSec: 6,
 };

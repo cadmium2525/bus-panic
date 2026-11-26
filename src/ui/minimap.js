@@ -45,7 +45,7 @@ export class Minimap {
     }
   }
 
-  draw({ bus, next, stopStates, cars, time, visible }) {
+  draw({ bus, next, stopStates, cars, time, visible, route }) {
     if (!visible) return;
     const cv = this.canvas;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -72,6 +72,21 @@ export class Minimap {
     g.imageSmoothingEnabled = true;
     g.drawImage(this.base, 0, 0, this.base.width, this.base.height, 0, 0, N * TILE, N * TILE);
 
+    // おすすめルート
+    if (route && route.length > 1) {
+      g.save();
+      g.lineWidth = 3.2;
+      g.lineCap = 'round';
+      g.lineJoin = 'round';
+      g.strokeStyle = 'rgba(255,210,63,0.85)';
+      g.setLineDash([6, 4]);
+      g.lineDashOffset = -time * 20;
+      g.beginPath();
+      g.moveTo(bus.x, bus.z);
+      for (let i = 1; i < route.length; i++) g.lineTo(route[i].x, route[i].z);
+      g.stroke();
+      g.restore();
+    }
     // 停留所
     for (const s of this.stops) {
       const st = stopStates[s.index];

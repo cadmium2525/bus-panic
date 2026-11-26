@@ -12,7 +12,7 @@ import { Passengers } from '../entities/passengers.js';
 import { createStops, inZone, START } from './stops.js';
 import { remainingPassengers, resolveStop, dwellTime, computeScore, rankFor, PenaltyLedger, formatClock } from './rules.js';
 import { SpatialHash } from '../core/collision.js';
-import { TILE, N, T, tileAt, isDrivableType, solidRectForTile, H_ROADS, V_ROADS, ALLEYS } from '../world/map.js';
+import { TILE, N, T, tileAt, isDrivableType, solidRectForTile, shortestPath, tileCenter, H_ROADS, V_ROADS, ALLEYS } from '../world/map.js';
 import { Autopilot } from './autopilot.js';
 
 const FOG_COLOR = 0xd7e7f2;
@@ -303,7 +303,10 @@ export class Game {
     for (const m of this.props.meshes) {
       this.scene.remove(m);
       m.geometry.dispose();
+      m.dispose();
     }
+    this.props.material.dispose();
+    this.props.atlas.dispose();
     this.props = new Props(this.scene, this.city.spawns, { onHit: (it, t) => this._onPropHit(it, t), shadows: this.q.shadows });
     this.props.onSplash = (it) => {
       this.audio.sfxSplash();
@@ -796,7 +799,18 @@ export class Game {
       onboard: run.onboard,
       capacity: RULES.capacity,
     });
+    // 大通り経由のおすすめルート（1秒ごとに再計算）
+    this._routeT = (this._routeT || 0) - 1;
+    if (this._routeT <= 0 || this._routeFor !== idx) {
+      this._routeT = 30;
+      this._routeFor = idx;
+      const from = { c: Math.floor(bus.x / TILE), r: Math.floor(bus.z / TILE) };
+      const to = { c: s.c, r: s.r };
+      const p = shortestPath(from, to, false) || shortestPath(from, to, true);
+      this._route = p ? p.path.map((t) => tileCenter(t.c, t.r)) : null;
+    }
     this.minimap.draw({
+      route: this._route,
       bus: { x: bus.x, z: bus.z, h: bus.h },
       next: idx,
       stopStates: run.stops.map((x) => x.status),

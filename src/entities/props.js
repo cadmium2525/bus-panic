@@ -189,12 +189,13 @@ export class Props {
     let slow = 0;
     const near = this._near;
     for (const c of circles) {
-      this.hash.query(c.x, c.z, radius + 2.2, near);
+      const cr = c.r || radius;
+      this.hash.query(c.x, c.z, cr + 2.2, near);
       for (const it of near) {
         if (it.state !== 0) continue;
         let hit;
-        if (it.box) hit = circleVsAABB(c.x, c.z, radius, it.box);
-        else hit = circleVsCircle(c.x, c.z, radius, it.x, it.z, it.kind.r);
+        if (it.box) hit = circleVsAABB(c.x, c.z, cr, it.box);
+        else hit = circleVsCircle(c.x, c.z, cr, it.x, it.z, it.kind.r);
         if (!hit) continue;
         this._launch(it, bus, c);
         slow = Math.max(slow, it.kind.slow);
