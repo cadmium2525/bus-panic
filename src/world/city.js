@@ -6,6 +6,7 @@ import {
   H_ROADS, V_ROADS, ALLEYS, RAIL,
 } from './map.js';
 import * as TX from './textures.js';
+import { legPath } from '../game/stops.js';
 
 const SW_H = 0.15; // 歩道の高さ
 const WATER_Y = -1.8;
@@ -808,7 +809,8 @@ export function buildCity(scene, { decorDensity = 1, stops = [] } = {}) {
 
   // ---------- 壊せる小物の配置 ----------
   const addSpawn = (type, x, z, rot = 0, variant = 0) => {
-    if (type !== 'guardrail' && nearStop(x, z, 13)) return;
+    // 停留所のまわりには置かない（ガードレールは寄せて止める車線ぶん広めに切る）
+    if (nearStop(x, z, type === 'guardrail' ? 18 : 13)) return;
     spawns[type].push({ x, z, rot, variant });
   };
 
@@ -818,18 +820,18 @@ export function buildCity(scene, { decorDensity = 1, stops = [] } = {}) {
     for (let x = 5 * TILE; x < 56 * TILE; x += 4) {
       const c = Math.floor((x + 2) / TILE);
       if (tileAt(c, 29) !== T.BANK) continue;
+      // 橋の入口の両脇は、橋へ曲がるバスの内輪が当たるので置かない
+      if (tileAt(Math.floor((x - 7) / TILE), 29) === T.BRIDGE || tileAt(Math.floor((x + 11) / TILE), 29) === T.BRIDGE) continue;
       addSpawn('guardrail', x + 2, z, 0);
     }
   }
   // 小学校前の歩道ガードレール
   {
-    const z = 19 * TILE + 0.35;
+    // 縁石から少し離して立てる（縁石に寄せて走るバスの車体がかすらないように）
+    const z = 19 * TILE + 0.8;
     for (let x = 22 * TILE + 6; x < 37 * TILE - 6; x += 4) addSpawn('guardrail', x + 2, z, 0);
-    const x = 22 * TILE + 0.35;
-    for (let zz = 19 * TILE + 6; zz < 27 * TILE - 6; zz += 4) {
-      if (Math.abs(zz + 2 - 24.5 * TILE) < 13) continue; // 停留所の前は切れ目
-      addSpawn('guardrail', x, zz + 2, Math.PI / 2);
-    }
+    const x = 22 * TILE + 0.8;
+    for (let zz = 19 * TILE + 6; zz < 27 * TILE - 6; zz += 4) addSpawn('guardrail', x, zz + 2, Math.PI / 2);
   }
 
   // 路地ごとの小物
@@ -878,7 +880,19 @@ export function buildCity(scene, { decorDensity = 1, stops = [] } = {}) {
   }
 
   // 幹線の歩道: 交差点角の標識、商店前の植木鉢・立て看板、工事区間のコーン
+  // おすすめルートが曲がる交差点の角には標識を立てない（曲がるバスの車体が歩道の角にかかるため）
+  const turnTiles = new Set();
+  stops.forEach((s, i) => {
+    const p = legPath(stops[i - 1], s);
+    if (!p) return;
+    for (let k = 1; k + 1 < p.path.length; k++) {
+      const a = p.path[k - 1], b = p.path[k], c = p.path[k + 1];
+      if (b.c - a.c !== c.c - b.c || b.r - a.r !== c.r - b.r) turnTiles.add(b.r * N + b.c);
+    }
+  });
+  const routeTurnsAt = (it) => [0, 1].some((dc) => [0, 1].some((dr) => turnTiles.has((it.r + dr) * N + it.c + dc)));
   for (const it of intersections) {
+    if (routeTurnsAt(it)) continue;
     const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
     corners.forEach(([sx, sz], k) => {
       const x = it.x + sx * (TILE + 1.1), z = it.z + sz * (TILE + 1.1);
@@ -918,8 +932,9 @@ export function buildCity(scene, { decorDensity = 1, stops = [] } = {}) {
     return colliders.circles.some((p) => Math.abs(p.x - x) < 2.5 && Math.abs(p.z - z) < 2.5);
   }
   // 工事区間（路肩にコーン列）
+  // 停留所の前後や曲がり角を避けて、順路が通り過ぎるだけの区間に置く
   const works = [
-    { x0: 26 * TILE, x1: 31 * TILE, z: 41 * TILE + 1.2 }, // r4 北側路肩
+    { x0: 33 * TILE, x1: 36 * TILE, z: 41 * TILE + 1.2 }, // r4 北側路肩（新町と駅の間）
     { x0: 8 * TILE, x1: 13 * TILE, z: 56 * TILE - 1.2 }, // r5 南側路肩
   ];
   for (const w of works) {
@@ -927,7 +942,7 @@ export function buildCity(scene, { decorDensity = 1, stops = [] } = {}) {
     addSpawn('barricade', w.x0 - 1, w.z, Math.PI / 2);
   }
   // 縦の道の路肩にも
-  for (let z = 6 * TILE; z <= 10 * TILE; z += 2.5) addSpawn('cone', 55 * TILE + 6.8, z + 0.0);
+  for (let z = 21 * TILE; z <= 25 * TILE; z += 2.5) addSpawn('cone', 55 * TILE + 6.8, z + 0.0);
   for (let z = 44 * TILE; z <= 47 * TILE; z += 2.5) addSpawn('cone', 3 * TILE + 1.2, z);
 
   // 自動販売機（幹線の歩道、建物の際。当たり判定あり）
@@ -1005,6 +1020,7 @@ export function buildCity(scene, { decorDensity = 1, stops = [] } = {}) {
     spawns,
     intersections,
     crossings,
+    poles,
     textures: tex,
   };
 }

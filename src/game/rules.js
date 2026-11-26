@@ -37,21 +37,29 @@ export function resolveStop({ initialWaiting, alighting, scheduledSec, arrivalSe
 }
 
 /**
- * 総合スコア = 運賃収入 ＋ 定時到着ボーナス（コンボ込み）＋ 運転技術ボーナス（ピタ止め・ライバルに勝つ）
+ * 総合スコア = 運賃収入 ＋ 定時到着ボーナス（コンボ込み）＋ 運転技術ボーナス（ピタ止め・ライバルに勝つ）＋ 巻きボーナス
  *            ＋ チップ ＋ 全停留所制覇ボーナス − 器物破損罰金 − その他ペナルティ
  */
-export function computeScore({ fare, onTimeBonus, skillBonus = 0, tips = 0, allStops, damage, other }) {
+export function computeScore({ fare, onTimeBonus, skillBonus = 0, makiBonus = 0, tips = 0, allStops, damage, other }) {
   const allStopsBonus = allStops ? RULES.allStopsBonus : 0;
   return {
     fare,
     onTimeBonus,
     skillBonus,
+    makiBonus,
     tips,
     allStopsBonus,
     damage,
     other,
-    total: fare + onTimeBonus + skillBonus + tips + allStopsBonus - damage - other,
+    total: fare + onTimeBonus + skillBonus + makiBonus + tips + allStopsBonus - damage - other,
   };
+}
+
+/** 巻きボーナス：区間を時刻表の想定より saved 秒速く走った。最初の数秒はなし、上限あり。10 円単位 */
+export function makiBonus(saved, mult = 1) {
+  const s = saved - RULES.maki.freeSec;
+  if (!(s > 0)) return 0;
+  return Math.min(RULES.maki.max, Math.round((s * RULES.maki.perSec) / 10) * 10) * mult;
 }
 
 export function rankFor(total, ranks = RANKS) {
@@ -114,14 +122,18 @@ export class PenaltyLedger {
   }
 }
 
-/** 時刻表を生成: 各区間の距離(m)から定刻(秒)を求める */
-export function buildSchedule(legDistances, { speed = RULES.scheduleSpeed, dwell = RULES.scheduleDwellSec, first = RULES.firstStopSlackSec } = {}) {
+/**
+ * 時刻表を生成: 各区間の走行秒数と、各停留所の停車秒数から定刻（発車からの秒数）を求める。
+ * first は最初に足す余裕。時刻表らしく 5 秒単位に丸める（丸めても前の停留所より必ず後）
+ */
+export function buildSchedule(legSecs, { dwells = [], dwell = RULES.scheduleDwellSec, first = RULES.firstStopSlackSec } = {}) {
   const times = [];
-  let t = 0;
-  legDistances.forEach((d, i) => {
-    t += d / speed + (i === 0 ? first : dwell);
-    // 時刻表っぽく5秒単位に丸める
-    times.push(Math.round(t / 5) * 5);
+  let t = first;
+  legSecs.forEach((d, i) => {
+    t += d;
+    const prev = times.length ? times[times.length - 1] : 0;
+    times.push(Math.max(prev + 5, Math.round(t / 5) * 5));
+    t += dwells[i] ?? dwell;
   });
   return times;
 }

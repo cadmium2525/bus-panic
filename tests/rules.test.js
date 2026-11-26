@@ -99,7 +99,7 @@ test('ランクは S/A/B/C/D の順に判定', () => {
 });
 
 test('時刻表は単調増加で5秒単位', () => {
-  const t = buildSchedule([100, 300, 250, 400]);
+  const t = buildSchedule([12, 31, 20, 33], { dwells: [2, 3.4, 2, 0] });
   for (let i = 1; i < t.length; i++) assert.ok(t[i] > t[i - 1]);
   for (const x of t) assert.equal(x % 5, 0);
 });
@@ -108,4 +108,16 @@ test('表示用フォーマット', () => {
   assert.equal(formatClock(8 * 3600 + 65), '8:01:05');
   assert.equal(formatYen(12500), '¥12,500');
   assert.equal(formatYen(-200), '−¥200');
+});
+
+test('巻きボーナス：最初の 2 秒はなし、1 秒 ¥150、1 区間 ¥3,000 まで', async () => {
+  const { makiBonus } = await import('../src/game/rules.js');
+  assert.equal(makiBonus(-5), 0);
+  assert.equal(makiBonus(2), 0);
+  assert.equal(makiBonus(4), 300);
+  assert.equal(makiBonus(12.34), 1550);
+  assert.equal(makiBonus(60), 3000);
+  assert.equal(makiBonus(4, 2), 600);
+  const s = computeScore({ fare: 1000, onTimeBonus: 0, makiBonus: 500, allStops: false, damage: 0, other: 0 });
+  assert.equal(s.total, 1500);
 });

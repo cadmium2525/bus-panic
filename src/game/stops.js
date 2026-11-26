@@ -1,28 +1,30 @@
 // 停留所データ（固定ルート15か所）と時刻表
 import { TILE, tileCenter, shortestPath, drivePath, RAIL } from '../world/map.js';
-import { buildSchedule } from './rules.js';
+import { buildSchedule, dwellTime } from './rules.js';
 import { RULES } from '../config.js';
 
 // c,r: 停留所のある車線タイル / curb: 歩道側の方角 / wait: 初期待機人数 / off: 降車人数
+// 左側通行で U ターンせずに回れる順路。工場前・南町・新町の 3 区間は、路地を抜けると本線より大きく短縮できる
 export const STOP_DEFS = [
-  { name: '限界営業所前', kana: 'げんかいえいぎょうしょまえ', c: 9, r: 3, curb: 'N', wait: 6, off: 0 },
-  { name: '銀座商店街', kana: 'ぎんざしょうてんがい', c: 15, r: 17, curb: 'N', wait: 14, off: 2 },
-  { name: '限界小学校前', kana: 'げんかいしょうがっこうまえ', c: 21, r: 24, curb: 'E', wait: 9, off: 4 },
-  { name: '工場前', kana: 'こうじょうまえ', c: 44, r: 27, curb: 'N', wait: 12, off: 5 },
-  { name: '東町一丁目', kana: 'ひがしまちいっちょうめ', c: 50, r: 17, curb: 'N', wait: 8, off: 6 },
-  { name: '稲荷神社前', kana: 'いなりじんじゃまえ', c: 46, r: 4, curb: 'S', wait: 10, off: 5 },
-  { name: '北町二丁目', kana: 'きたまちにちょうめ', c: 38, r: 12, curb: 'E', wait: 11, off: 6 },
-  { name: '市民病院前', kana: 'しみんびょういんまえ', c: 45, r: 41, curb: 'N', wait: 15, off: 12 },
-  { name: '東町', kana: 'ひがしまち', c: 55, r: 48, curb: 'E', wait: 9, off: 7 },
-  { name: '南町', kana: 'みなみまち', c: 33, r: 55, curb: 'S', wait: 10, off: 9 },
-  { name: '図書館前', kana: 'としょかんまえ', c: 25, r: 42, curb: 'S', wait: 12, off: 10 },
-  { name: '団地中央', kana: 'だんちちゅうおう', c: 4, r: 46, curb: 'E', wait: 16, off: 10 },
-  { name: '新町', kana: 'しんまち', c: 12, r: 54, curb: 'N', wait: 10, off: 12 },
-  { name: '市役所前', kana: 'しやくしょまえ', c: 12, r: 27, curb: 'N', wait: 13, off: 15 },
+  { name: '限界営業所前', kana: 'げんかいえいぎょうしょまえ', c: 9, r: 4, curb: 'S', wait: 6, off: 0 },
+  { name: '銀座商店街', kana: 'ぎんざしょうてんがい', c: 4, r: 9, curb: 'E', wait: 14, off: 2 },
+  { name: '市役所前', kana: 'しやくしょまえ', c: 4, r: 21, curb: 'E', wait: 13, off: 6 },
+  { name: '限界小学校前', kana: 'げんかいしょうがっこうまえ', c: 29, r: 27, curb: 'N', wait: 9, off: 5 },
+  { name: '工場前', kana: 'こうじょうまえ', c: 43, r: 18, curb: 'S', wait: 12, off: 7 },
+  { name: '北町二丁目', kana: 'きたまちにちょうめ', c: 37, r: 11, curb: 'W', wait: 11, off: 6 },
+  { name: '稲荷神社前', kana: 'いなりじんじゃまえ', c: 46, r: 3, curb: 'N', wait: 10, off: 6 },
+  { name: '東町一丁目', kana: 'ひがしまちいっちょうめ', c: 55, r: 11, curb: 'E', wait: 8, off: 6 },
+  { name: '市民病院前', kana: 'しみんびょういんまえ', c: 38, r: 37, curb: 'E', wait: 15, off: 14 },
+  { name: '南町', kana: 'みなみまち', c: 33, r: 54, curb: 'N', wait: 10, off: 9 },
+  { name: '東町', kana: 'ひがしまち', c: 54, r: 46, curb: 'W', wait: 9, off: 8 },
+  { name: '図書館前', kana: 'としょかんまえ', c: 24, r: 42, curb: 'S', wait: 12, off: 10 },
+  { name: '団地中央', kana: 'だんちちゅうおう', c: 4, r: 46, curb: 'E', wait: 16, off: 9 },
+  { name: '新町', kana: 'しんまち', c: 28, r: 41, curb: 'N', wait: 10, off: 10 },
   { name: '限界駅（終点）', kana: 'げんかいえき', c: 46, r: 45, curb: 'N', wait: 0, off: 999, terminal: true },
 ];
 
-export const START = { c: 5, r: 3, x: 5 * TILE + 2, z: 3.5 * TILE, heading: Math.PI / 2 };
+// 営業所の前（東行き車線の 1 本南＝西行き車線）から西向きに出発
+export const START = { c: 13, r: 4, x: 13 * TILE + 4, z: 4.5 * TILE, heading: -Math.PI / 2 };
 
 const DIRS = { N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0] };
 
@@ -104,10 +106,28 @@ export function legPath(prevStop, stop, blocked = null, allowAlley = false) {
   return approachPath(from, stop, allowAlley, blocked, departDir(prevStop));
 }
 
-/** 時刻表用の区間の所要時間（停車時間を除く） */
+/** 時刻表用の区間の走行時間（停車時間・踏切待ちを除く）。自動運転の実測（3.1 秒 + 距離 ÷ 13.5m/s + 曲がり 1.2 秒）より少し遅い人を想定 */
 export function legTime(p) {
-  if (!p) return 300 / RULES.scheduleSpeed;
-  return (p.tiles * TILE) / RULES.scheduleSpeed + (p.turns || 0) * RULES.scheduleTurnSec;
+  if (!p) return 25;
+  return RULES.scheduleLegSec + (p.tiles * TILE) / RULES.scheduleSpeed + (p.turns || 0) * RULES.scheduleTurnSec;
+}
+
+/** 経路が線路（踏切）を渡る回数 */
+export function railCrossings(p) {
+  if (!p) return 0;
+  let n = 0;
+  for (let i = 1; i < p.path.length; i++) if (RAIL.rows.includes(p.path[i].r) && !RAIL.rows.includes(p.path[i - 1].r)) n++;
+  return n;
+}
+
+/** 時刻表に載せる区間の秒数：走行 ＋ 踏切待ちの余裕 ＋ 終点のロータリーに入る分 */
+export function legSeconds(p, stop) {
+  return legTime(p) + railCrossings(p) * RULES.crossingSlackSec + (stop && stop.terminal ? RULES.terminalExtraSec : 0);
+}
+
+/** 時刻表に載せる停車時間（待っている客が全員乗った場合の乗降時間） */
+export function scheduleDwell(def) {
+  return def.terminal ? 0 : dwellTime(def.wait, def.off) + RULES.scheduleDwellExtraSec;
 }
 
 export function legDistances() {
@@ -117,29 +137,21 @@ export function legDistances() {
   });
 }
 
-/** 各区間で線路（踏切）を渡るか。渡る区間は電車待ちの分だけ時刻表に余裕を持たせる */
+/** 各区間で線路（踏切）を渡るか */
 export function legCrossesRail() {
-  return STOP_DEFS.map((s, i) => {
-    const p = legPath(STOP_DEFS[i - 1], s);
-    return !!p && p.path.some((t) => RAIL.rows.includes(t.r));
-  });
+  return STOP_DEFS.map((s, i) => railCrossings(legPath(STOP_DEFS[i - 1], s)) > 0);
 }
 
 /** 停留所を一部だけ回るコース（入門コース）の時刻表。course は停留所番号の並び */
 export function courseSchedule(stops, course) {
-  const eq = course.map((i, k) => {
-    const p = legPath(k ? stops[course[k - 1]] : null, stops[i]);
-    const rail = !!p && p.path.some((t) => RAIL.rows.includes(t.r));
-    return (legTime(p) + (rail ? RULES.crossingSlackSec : 0)) * RULES.scheduleSpeed;
-  });
-  return buildSchedule(eq);
+  const legs = course.map((i, k) => legSeconds(legPath(k ? stops[course[k - 1]] : null, stops[i]), stops[i]));
+  return buildSchedule(legs, { dwells: course.map((i) => scheduleDwell(stops[i])) });
 }
 
 export function createStops() {
-  // 区間ごとの所要時間（距離 ÷ 想定速度 ＋ 曲がり角 ＋ 踏切待ち）を距離に換算して時刻表を作る
-  const cross = legCrossesRail();
-  const eq = STOP_DEFS.map((s, i) => (legTime(legPath(STOP_DEFS[i - 1], s)) + (cross[i] ? RULES.crossingSlackSec : 0)) * RULES.scheduleSpeed);
-  const sched = buildSchedule(eq);
+  // 区間ごとの所要時間（距離 ÷ 想定速度 ＋ 曲がり角 ＋ 踏切待ち）と停車時間を足して時刻表を作る
+  const legs = STOP_DEFS.map((s, i) => legSeconds(legPath(STOP_DEFS[i - 1], s), s));
+  const sched = buildSchedule(legs, { dwells: STOP_DEFS.map(scheduleDwell) });
   return STOP_DEFS.map((def, i) => ({
     index: i,
     ...def,

@@ -51,6 +51,7 @@ export class Hud {
 
   /** 乗客のひとこと（吹き出し） */
   bubble(x, y, text) {
+    y = this._belowBig(y, 40);
     const d = document.createElement('div');
     d.className = 'bubble';
     d.textContent = text;
@@ -280,6 +281,8 @@ export class Hud {
 
   /** 画面上の位置にふわっと浮かぶテキスト */
   floatText(x, y, text, kind = '') {
+    // 浮き文字は上へ 50px ほど昇るので、そのぶん下げる
+    y = this._belowBig(y, 85);
     let d = this.floatPool.pop();
     if (!d) {
       d = document.createElement('div');
@@ -293,6 +296,14 @@ export class Hud {
     d.style.left = `${x}px`;
     d.style.top = `${y}px`;
     this.el.floats.appendChild(d);
+  }
+
+  /** 大きな見出し（定時到着・遅延など）が出ている間は、その帯（画面の上から 22〜52%）にかからないよう y を下げる */
+  _belowBig(y, gap) {
+    if (!this.el.big.classList.contains('show')) return y;
+    const H = this.el.root.clientHeight || window.innerHeight;
+    const top = H * 0.22, bottom = H * 0.52;
+    return y > top && y < bottom + gap ? bottom + gap : y;
   }
 
   big(main, sub = '', dur = 1.6, kind = '') {

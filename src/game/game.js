@@ -9,8 +9,8 @@ import { Props } from '../entities/props.js';
 import { Bus } from '../entities/bus.js';
 import { Traffic } from '../entities/traffic.js';
 import { Passengers } from '../entities/passengers.js';
-import { createStops, inZone, START, stopError, approachPath, legPath, legTime, headingDir, courseSchedule } from './stops.js';
-import { remainingPassengers, resolveStop, dwellTime, computeScore, rankFor, PenaltyLedger, formatClock, comboBonus, pitaGrade, rampageMultiplier } from './rules.js';
+import { createStops, inZone, START, stopError, approachPath, legPath, legSeconds, headingDir, courseSchedule } from './stops.js';
+import { remainingPassengers, resolveStop, dwellTime, computeScore, rankFor, PenaltyLedger, formatClock, comboBonus, pitaGrade, rampageMultiplier, makiBonus } from './rules.js';
 import { Railway } from '../entities/railway.js';
 import { planClosures, planHurry, planRivals, Rival, spotBehind } from './happenings.js';
 import { defaultMods, dailyChallenge, seededRandom, MODES } from './modes.js';
@@ -113,6 +113,7 @@ export class Game {
     this.traffic.railway = this.railway;
     this.rival = new Rival(this.scene);
     this.rival.railway = this.railway;
+    this.rival.traffic = this.traffic;
     this.traffic.extraBuses = [this.rival];
     this._buildStopVisuals();
     this._buildMarker();
@@ -123,7 +124,10 @@ export class Game {
     this.autopilot = ap
       ? new Autopilot(ap.includes('fast') ? { alleys: ap.includes('alley'), cruise: 19.5, turnSpeed: 8.5, decel: 8.5 } : { alleys: ap.includes('alley') })
       : null;
-    if (this.autopilot && !ap.includes('wild')) this.autopilot.railway = this.railway;
+    if (this.autopilot && !ap.includes('wild')) {
+      this.autopilot.railway = this.railway;
+      this.autopilot.traffic = this.traffic;
+    }
 
     this.applyQuality(this.qualityKey);
     this._resetWorld();
@@ -155,11 +159,14 @@ export class Game {
     } else requestAnimationFrame(this._loop);
   }
 
-  /** いまのゲーム画面を 1200×630 に切り抜いた canvas（シェア画像の背景用） */
+  /** シェア画像の背景用の 1200×630 の canvas。運行中のいちばんの見せ場があればその画面、なければいまの画面 */
   snapshot() {
     try {
-      this.renderer.render(this.scene, this.camera);
-      const src = this.renderer.domElement;
+      let src = this._bestShot && this._bestShot.canvas;
+      if (!src) {
+        this.renderer.render(this.scene, this.camera);
+        src = this.renderer.domElement;
+      }
       const W = 1200, H = 630;
       const c = document.createElement('canvas');
       c.width = W;
@@ -403,6 +410,9 @@ export class Game {
       combo: 0,
       maxCombo: 0,
       skill: 0,
+      maki: 0,
+      makiLegs: 0,
+      depT: 0,
       tips: 0,
       pita: { perfect: 0, great: 0, good: 0, miss: 0 },
       hurry: planHurry(this.stops, rnd, mods.hurry),
@@ -441,6 +451,13 @@ export class Game {
       unlocked: [],
       recorder: new GhostRecorder(),
     };
+    // 区間ごとの想定走行時間（巻きボーナス用。通行止めの遠回りも含める）
+    course.forEach((i, k) => {
+      const ps = k ? this.stops[course[k - 1]] : null;
+      const s = this.stops[i];
+      const p = legPath(ps, s, this.run.blocked) || legPath(ps, s, this.run.blocked, true) || legPath(ps, s);
+      this.run.stops[i].legPlan = legSeconds(p, s);
+    });
     this.passengers.populate(this.stops, this.run.stops.map((x) => x.base));
     if (this.autopilot) this.autopilot.blocked = this.run.blocked;
     this.rival.blocked = this.run.blocked;
@@ -457,6 +474,7 @@ export class Game {
       for (let k = 0; k < from; k++) this.run.stops[k].status = 'done';
       this.run.next = from;
       this.run.t = this.stops[from - 1].scheduled;
+      this.run.depT = this.run.t;
     }
     this._startClips();
     this.state = 'countdown';
@@ -494,6 +512,8 @@ export class Game {
 
   _startClips() {
     this.lastClips = [];
+    this._bestShot = null;
+    this._shotReq = null;
     if (this.clips) this.clips.stop();
     if (!this._clipsWanted()) {
       this.clips = null;
@@ -507,8 +527,13 @@ export class Game {
   }
 
   /** 見せ場（score が高いものほど残る） */
-  _highlight(label, score) {
-    if (this.clips && this.state === 'playing') this.clips.highlight(label, score, performance.now() / 1000);
+  _highlight(label, score, tail, shotDelay = 0.15) {
+    if (this.state !== 'playing') return;
+    const now = performance.now() / 1000;
+    if (this.clips) this.clips.highlight(label, score, now, tail);
+    if (!this._bestShot || score > this._bestShot.score) {
+      if (!this._shotReq || score > this._shotReq.score) this._shotReq = { score, at: now + shotDelay };
+    }
   }
 
   /** コースで i の次に回る停留所 */
@@ -527,7 +552,7 @@ export class Game {
         const ps = this.stops[i - 1];
         const a = legPath(ps, s);
         const b = legPath(ps, s, blocked) || legPath(ps, s, blocked, true);
-        if (a && b) add += Math.max(0, legTime(b) - legTime(a));
+        if (a && b) add += Math.max(0, legSeconds(b, s) - legSeconds(a, s));
       }
       s.scheduled = s.baseScheduled + Math.round(add / 5) * 5;
     });
@@ -559,7 +584,7 @@ export class Game {
       if (this.state === 'playing') {
         this._voice('splash');
         this._unlock('dobon');
-        this._highlight('ドボン！', 70);
+        this._highlight('ドボン！', 70, 4, 0.6);
       }
     };
   }
@@ -617,7 +642,7 @@ export class Game {
     const other = ledger.total((it) => ['reset', 'impact', 'brake', 'crossing', 'train'].includes(it.kind));
     const score = run.rampage
       ? { total: run.rampage.points, fare: 0, onTimeBonus: 0, skillBonus: 0, tips: 0, allStopsBonus: 0, damage: 0, other: 0 }
-      : computeScore({ fare: run.fare, onTimeBonus: run.bonus, skillBonus: run.skill, tips: run.tips, allStops, damage, other });
+      : computeScore({ fare: run.fare, onTimeBonus: run.bonus, skillBonus: run.skill, makiBonus: run.maki, tips: run.tips, allStops, damage, other });
     const rank = rankFor(score.total, run.rampage ? RAMPAGE.ranks : run.mode === 'intro' ? INTRO.ranks : undefined);
     const result = {
       reason,
@@ -626,6 +651,7 @@ export class Game {
       daily: run.daily ? { key: run.daily.key, picks: run.daily.picks.map((p) => ({ icon: p.icon, name: p.name })) } : null,
       rampage: run.rampage ? { ...run.rampage } : null,
       maxCombo: run.maxCombo,
+      makiLegs: run.makiLegs,
       pita: { ...run.pita },
       hurry: { done: run.hurryDone, total: run.hurry.length },
       rival: { wins: run.rivalWins, losses: run.rivalLosses },
@@ -743,7 +769,7 @@ export class Game {
     this.slowmo = 0.45;
     if (!run || this.state !== 'playing') return;
     this._voice('car');
-    this._highlight('他の車に激突', run.rampage ? 25 : 40);
+    this._highlight('他の車に激突', run.rampage ? 25 : 40, 3.5, 0.3);
     car.gen = (car.gen || 0) + 1;
     const id = `${car.id}#${car.gen}`;
     if (run.rampage) {
@@ -875,6 +901,20 @@ export class Game {
     if (this.run && (this.state === 'playing' || this.state === 'countdown' || this.state === 'paused')) this._updateHud();
     this.renderer.render(this.scene, this.camera);
     if (this.clips && this.clips.active) this.clips.frame(this.renderer.domElement, performance.now() / 1000);
+    // シェア画像の背景用：いちばんの見せ場の画面を写しておく（描画の直後でないと WebGL の画面は読めない）
+    if (this._shotReq && performance.now() / 1000 >= this._shotReq.at) {
+      const src = this.renderer.domElement;
+      try {
+        const c = document.createElement('canvas');
+        c.width = 960;
+        c.height = Math.round((960 * src.height) / src.width);
+        c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
+        this._bestShot = { score: this._shotReq.score, canvas: c };
+      } catch (_) {
+        /* 写せなければ結果画面の画面を使う */
+      }
+      this._shotReq = null;
+    }
     inp.endFrame();
   }
 
@@ -996,7 +1036,14 @@ export class Game {
     const run = this.run;
     const bus = this.bus;
     const cr = this.railway.crossingAt(bus.x, bus.z);
-    if (cr && cr.warn && cr.gate > 0.25 && bus.speed > 1 && !cr.violated) {
+    // 踏切に入った瞬間の遮断機の状態を覚えておく（渡っている途中で鳴り始めたら、そのまま渡りきってよい）
+    if (cr !== run.crNow) {
+      run.crNow = cr;
+      run.crEnterGate = cr && cr.warn ? cr.gate : 0;
+    }
+    // 電車にはねられて飛ばされている間は踏切無視に数えない
+    const knocked = bus.knockT > 0 || bus.airborne || (this._trainCd || 0) > run.t;
+    if (cr && cr.warn && run.crEnterGate > 0.25 && bus.speed > 1 && !cr.violated && !knocked) {
       cr.violated = true;
       cr.broken = true;
       this.effects.chips_(cr.x, 1, bus.z, 10, ['#ffd400', '#111111']);
@@ -1044,7 +1091,7 @@ export class Game {
     this.effects.sparks_(bus.x, 1.6, bus.z, 60, { vx: dir * 12, speed: 14 });
     this.effects.chips_(bus.x, 2, bus.z, 26, ['#f7f5ee', '#1f8a4c', '#22313c', '#c9e3f5', '#ffcc33'], { vx: dir * 10, vz: away * 4, speed: 9, up: 10, size: [0.12, 0.35] });
     run.smokeT = 6; // しばらく煙を上げる
-    this._highlight('電車にはね飛ばされる', 100);
+    this._highlight('電車にはね飛ばされる', 100, 4.5, 0.5);
     this._unlock('train');
     if (run.rampage) {
       this._rampageHit(RAMPAGE.points.train, '電車と衝突', bus.x, bus.z, 'train');
@@ -1190,6 +1237,7 @@ export class Game {
         while (st.boarded < st.result.board) this._boardOne(i);
         st.status = 'done';
         run.serving = -1;
+        run.depT = run.t;
         bus.doorTarget = 0;
         this.hud.dwell(null);
         this.audio.play('door', { volume: 0.7 });
@@ -1210,6 +1258,10 @@ export class Game {
 
     if (!slow) {
       run.terminalHold = 0;
+      if (run.missHold) {
+        run.missHold = false;
+        this.hud.dwell(null);
+      }
       return;
     }
     // 到着判定: 次の停留所、または終点（途中打ち切り）
@@ -1224,7 +1276,16 @@ export class Game {
         this.hud.dwell(run.terminalHold / 3, '残りの停留所を通過して運行終了…');
         if (run.terminalHold < 3) return;
         for (let k = run.next; k < lastIdx; k++) if (run.stops[k].status === 'pending') run.stops[k].status = 'skipped';
+      } else if (!s.terminal) {
+        // 停止位置が大きくずれていたら、すぐには到着にしない（少し動いて止め直せる）
+        const err = stopError(s, bus.x, bus.z);
+        if (pitaGrade(err.along, err.gap).grade === 'miss' && run.stillT < RULES.missHoldSec) {
+          run.missHold = true;
+          this.hud.dwell(run.stillT / RULES.missHoldSec, '位置ずれ！ 今なら動いて止め直せます');
+          return;
+        }
       }
+      run.missHold = false;
       this._arrive(idx);
       return;
     }
@@ -1271,6 +1332,15 @@ export class Game {
       if (run.combo >= 10) this._unlock('combo10');
     } else run.combo = 0;
     res.bonus = bonus;
+    // 巻きボーナス：この区間を想定より速く走った（停留所を飛ばして終点に来たときはなし）
+    const saved = (st.legPlan || 0) - (run.t - run.depT);
+    const maki = run.stops.some((x) => x.status === 'skipped') ? 0 : makiBonus(saved, run.mods.makiMult || 1);
+    st.saved = saved;
+    if (maki > 0) {
+      run.maki += maki;
+      run.makiLegs++;
+      setTimeout(() => this.run === run && this._floatWorld(bus.x, 6, bus.z, `${saved.toFixed(1)}秒巻き +¥${maki.toLocaleString()}`, 'fare'), 450);
+    }
     // ピタ止め（中扉を標柱の横に、縁石ぎりぎりに）
     const err = stopError(s, bus.x, bus.z);
     const pg = pitaGrade(err.along, err.gap, run.mods.pitaMult);
@@ -1278,6 +1348,15 @@ export class Game {
     run.skill += pg.bonus;
     st.pita = pg.grade;
     const advice = this._pitaAdvice(s, err, pg.grade);
+    // 見出し（定時・遅延）を先に出す。あとから出る浮き文字はこの見出しにかぶらない位置に出る
+    const pitaText = pg.grade === 'miss' ? (advice ? `　停止位置 ${advice}` : '') : `　${pg.label}`;
+    if (s.terminal) {
+      this.hud.big('終点 限界駅', (res.onTime ? `定時到着！ +¥${bonus}` : `遅延 ${Math.round(res.delay)}秒`) + pitaText, 2, res.onTime ? 'good' : 'bad');
+    } else if (res.onTime) {
+      this.hud.big(run.combo >= 2 ? `定時コンボ ×${run.combo}` : '定時到着！', `+¥${bonus.toLocaleString()} ボーナス${pitaText}`, 1.4, 'good');
+    } else {
+      this.hud.big(`遅延 ${Math.round(res.delay)}秒`, res.lost > 0 ? `${res.lost}人が待ちきれず帰宅…` : 'お客様はまだ待っていた', 1.6, 'bad');
+    }
     if (run.pita.perfect >= 6) this._unlock('pitamaster');
     if (i <= 1 && !s.terminal) setTimeout(() => this.run === run && this._hint('pita'), 1800);
     this.bus.setOnboard(run.onboard, RULES.capacity);
@@ -1308,7 +1387,7 @@ export class Game {
       this.hud.toast(`ライバルに競り勝った！ +¥${RULES.rivalWin.toLocaleString()}`, 'achieve');
       this.audio.play('combo', { volume: 0.7, delay: 0.5 });
       this._unlock('rival');
-      this._highlight('ライバルに競り勝つ', 45);
+      this._highlight('ライバルに競り勝つ', 45, 2.5);
     }
     // 急ぎの客
     for (const h of run.hurry) {
@@ -1356,14 +1435,6 @@ export class Game {
       const q = run.infoQueue;
       run.infoQueue = null;
       q.forEach((t, k) => setTimeout(() => this.run === run && this.hud.toast(t, 'info'), 1600 + k * 900));
-    }
-    const pitaText = pg.grade === 'miss' ? (advice ? `　停止位置 ${advice}` : '') : `　${pg.label}`;
-    if (s.terminal) {
-      this.hud.big('終点 限界駅', (res.onTime ? `定時到着！ +¥${bonus}` : `遅延 ${Math.round(res.delay)}秒`) + pitaText, 2, res.onTime ? 'good' : 'bad');
-    } else if (res.onTime) {
-      this.hud.big(run.combo >= 2 ? `定時コンボ ×${run.combo}` : '定時到着！', `+¥${bonus.toLocaleString()} ボーナス${pitaText}`, 1.4, 'good');
-    } else {
-      this.hud.big(`遅延 ${Math.round(res.delay)}秒`, res.lost > 0 ? `${res.lost}人が待ちきれず帰宅…` : 'お客様はまだ待っていた', 1.6, 'bad');
     }
     if (res.leftBehind > 0) this.hud.toast(`満員で${res.leftBehind}人乗れず…`, 'warn');
   }
@@ -1567,7 +1638,7 @@ export class Game {
       remain: run.limit - run.t,
       fare: run.fare,
       bonus: run.bonus,
-      extra: run.skill + run.tips,
+      extra: run.skill + run.tips + run.maki,
       fine,
       speedKmh: bus.speed * 3.6,
       onboard: run.onboard,
@@ -1749,6 +1820,20 @@ export class Game {
         dist = Math.max(5, d - 1);
         height = Math.max(height, 6.4 + (13.5 - dist) * 0.45);
         break;
+      }
+    }
+    // 電柱がバスとカメラの間に入るなら、電柱より手前（バス寄り）にカメラを寄せる
+    const poles = this.city.poles;
+    if (poles) {
+      for (const p of poles) {
+        const rx = pose.x - p.x, rz = pose.z - p.z;
+        if (Math.abs(rx) > dist + 2 || Math.abs(rz) > dist + 2) continue;
+        const t = rx * fx + rz * fz; // バスから後ろ向きに測った電柱までの距離
+        if (t < 2.5 || t > dist + 1) continue;
+        if (Math.abs(rx * fz - rz * fx) < 1.1) {
+          dist = Math.max(5, Math.min(dist, t - 1.4));
+          height = Math.max(height, 6.4 + (13.5 - dist) * 0.45);
+        }
       }
     }
     const want = new THREE.Vector3(pose.x - fx * dist, height + this.bus.lift + this.bus.air * 0.7, pose.z - fz * dist);

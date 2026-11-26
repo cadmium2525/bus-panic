@@ -340,7 +340,8 @@ export class Bus {
     // ブレーキは踏み続けるほど強くなる（軽く踏めば急ブレーキにならない）
     if (input.brake && !input.hold && vf > 0.4) this.brakeHold += dt;
     else this.brakeHold = 0;
-    const brakeForce = BUS.brake * this.tuning.brake * (0.45 + 0.55 * Math.min(1, this.brakeHold / 0.6));
+    // 踏み始めは弱く（軽く踏めば微調整できる）、0.7 秒ほど踏み続けると最大
+    const brakeForce = BUS.brake * this.tuning.brake * (0.3 + 0.7 * Math.pow(Math.min(1, this.brakeHold / 0.7), 1.5));
     if (input.brake && !input.hold) {
       if (vf > 0.4) along -= brakeForce * (0.85 + 0.15 * loadK);
       else if (!input.throttle && (this.reverseHold > 0.35 || vf < -0.4)) along -= vf > -BUS.maxReverse ? BUS.reverseAccel : 0;

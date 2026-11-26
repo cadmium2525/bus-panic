@@ -179,7 +179,12 @@ export class Screens {
       return;
     }
     box.classList.remove('hidden');
-    $('clips-note').textContent = clips[0].ext === 'mp4' ? '保存して X にそのまま貼れます' : '保存できます（WebM 形式。X に貼るには MP4 への変換が必要です）';
+    const c0 = clips[0];
+    $('clips-note').textContent = c0.xReady
+      ? c0.withAudio
+        ? '保存して X にそのまま貼れます'
+        : '保存して X にそのまま貼れます（この端末では X 向けの音声で録れないため音なし）'
+      : '保存できます（WebM 形式。X に貼るには MP4 への変換が必要です）';
     clips.forEach((c, k) => {
       const url = URL.createObjectURL(c.blob);
       this._clipUrls.push(url);
@@ -192,6 +197,14 @@ export class Screens {
       v.playsInline = true;
       v.autoplay = true;
       v.setAttribute('playsinline', '');
+      // 表紙は見せ場の瞬間
+      if (c.poster) {
+        try {
+          v.poster = c.poster.toDataURL('image/jpeg', 0.8);
+        } catch (_) {
+          /* 表紙なし */
+        }
+      }
       v.addEventListener('click', () => {
         v.muted = !v.muted;
         if (v.paused) v.play();
@@ -358,6 +371,7 @@ export class Screens {
       row('運賃収入', '+' + formatYen(r.fare), 'plus') +
       row(`定時ボーナス（最大 ${r.maxCombo} コンボ）`, '+' + formatYen(r.onTimeBonus), 'plus') +
       row(`運転技術（ピタッ！${r.pita.perfect}回${r.rival.wins + r.rival.losses ? `・ライバル${r.rival.wins}勝` : ''}）`, '+' + formatYen(r.skillBonus), 'plus') +
+      row(`巻きボーナス（速く走った区間 ${r.makiLegs || 0}）`, '+' + formatYen(r.makiBonus || 0), 'plus') +
       (r.hurry.total ? row(`急ぎ客のチップ（${r.hurry.done}/${r.hurry.total}人）`, '+' + formatYen(r.tips), 'plus') : '') +
       row('全停留所制覇ボーナス', r.allStopsBonus ? '+' + formatYen(r.allStopsBonus) : '¥0', 'plus') +
       row('器物破損罰金', formatYen(-r.damage), 'minus') +

@@ -134,6 +134,12 @@ export class Rival {
   get h() {
     return this.bus.h;
   }
+  get vx() {
+    return this.bus.vx;
+  }
+  get vz() {
+    return this.bus.vz;
+  }
 
   start(x, z, h, target) {
     this.bus.reset(x, z, h);
@@ -141,6 +147,7 @@ export class Rival {
     this.bus.vz = Math.cos(h) * 12;
     this.ap = new Autopilot({ cruise: 13.5, turnSpeed: 7.5, decel: 7 });
     this.ap.railway = this.railway;
+    this.ap.traffic = this.traffic;
     this.ap.blocked = this.blocked;
     this.target = target;
     this.state = 'race';

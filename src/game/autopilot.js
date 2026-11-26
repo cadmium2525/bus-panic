@@ -91,8 +91,22 @@ export class Autopilot {
       const d = this.railway.shouldStop(bus.x, bus.z, bus.h) - 5.5;
       if (d < 30) vt = Math.min(vt, Math.max(0, Math.sqrt(2 * this.decel * Math.max(0, d - 0.5)) - 0.4));
     }
+    // 前を同じ向きに走る車に追突しない（traffic を渡されたときだけ）。
+    // 交差する車はバスを待ってくれるので見ない（見るとお互いに譲り合って動けなくなる）。長く待ったら気にせず進む
+    if (this.traffic) {
+      let gap = Infinity;
+      for (const car of this.traffic.cars) {
+        if (car.state !== 'drive' || Math.cos(car.h - bus.h) < 0.5) continue;
+        const rx = car.x - bus.x, rz = car.z - bus.z;
+        const along = rx * fx + rz * fz;
+        if (along <= 0 || along > 32 || Math.abs(rx * fz - rz * fx) > 2.4) continue;
+        gap = Math.min(gap, along - 6 - car.spec.len / 2);
+      }
+      this.followT = gap < 30 && bus.speed < 0.5 ? (this.followT || 0) + dt : 0;
+      if (gap < 30 && this.followT < 4) vt = Math.min(vt, Math.max(0, Math.sqrt(2 * this.decel * Math.max(0, gap - 2)) - 0.5));
+    }
     if (bus.speed < vt - 0.5) out.throttle = true;
-    else if (bus.speed > vt + 0.8) out.brake = true;
+    else if (bus.speed > vt + (toEnd < 40 ? 0.3 : 0.8)) out.brake = true;
     if (vt === 0) out.brake = bus.speed > 0.2;
     this._wantMove = vt > 1 && out.throttle;
     this._lastSteer = out.steer;

@@ -8,9 +8,10 @@ export const RULES = {
   comboMaxBonus: 2000, // 定時ボーナスの上限（コンボ 7 回目以降）
   pita: { perfect: 500, great: 250, good: 100 }, // ピタ止めボーナス
   hurryTip: 2000, // 急ぎの客を間に合わせたときのチップ
+  maki: { freeSec: 2, perSec: 150, max: 3000 }, // 巻きボーナス：区間を時刻表の想定より速く走ると 1 秒 ¥150（最初の 2 秒はなし、1 区間 ¥3,000 まで）
   rivalWin: 1000, // ライバルより先に停留所に着いたボーナス
   crossingPenalty: 2000, // 遮断機が下りている踏切に入った（踏切無視）
-  crossingSlackSec: 8, // 踏切を渡る区間の時刻表の余裕（電車待ち）
+  crossingSlackSec: 8, // 踏切 1 か所ごとの時刻表の余裕（電車待ち）
   trainCrashPenalty: 10000, // 電車との接触事故（その他ペナルティ）
   onTimeGraceSec: 5, // 遅延がこの秒数以下なら「定時」
   allStopsBonus: 5000, // 全停留所制覇ボーナス
@@ -23,15 +24,20 @@ export const RULES = {
   suddenBrakeSec: 0.45, // この秒数続くと急ブレーキ
   suddenBrakeFreeWarnings: 2, // 最初の何回かは注意だけ（罰金なし）
   stopSpeedKmh: 1.2, // 停留所の枠内でこの速度以下（ほぼ停止）になったら到着
+  missHoldSec: 1.1, // 停止位置が大きくずれているときは、この秒数止まったままで到着（その前に動けば止め直せる）
   dwellBaseSec: 1.2, // 乗降処理の基本時間
   dwellPerPersonSec: 0.12, // 1人あたりの乗降時間
   capacity: 60, // 定員
   timeLimitMarginSec: 75, // 終点の定刻 + この秒数 = 制限時間
   startClockSec: 8 * 3600, // 8:00:00 発
-  scheduleSpeed: 12, // 時刻表作成用の想定速度 (m/s)。曲がり角・踏切待ちは別に足す。大通りを丁寧に走ってだいたい定時になる程度
-  scheduleDwellSec: 4, // 時刻表作成用の停車時間
-  scheduleTurnSec: 3, // 時刻表作成用：曲がり角 1 つあたりの減速・加速のロス
-  firstStopSlackSec: 12, // 最初の停留所の余裕（以降の時刻もこのぶん後ろにずれる。慣れるまでの猶予）
+  // 時刻表：大通りを丁寧に走る人（自動運転より 6% ほど遅い）がだいたい定時になるように。余裕が序盤だけ・終盤だけに偏らない
+  scheduleSpeed: 12.7, // 想定速度 (m/s)
+  scheduleLegSec: 4.1, // 区間ごとの発進・減速のぶん
+  scheduleTurnSec: 1.3, // 曲がり角 1 つあたりのロス
+  scheduleDwellSec: 4, // 停車時間の既定値（停留所ごとの乗降人数から計算できないとき）
+  scheduleDwellExtraSec: 0.5, // 乗降時間に足す余裕
+  terminalExtraSec: 3, // 終点のロータリーに入る分
+  firstStopSlackSec: 8, // 出発時の余裕（以降の時刻もこのぶん後ろにずれる。慣れるまでの猶予）
 };
 
 // 公開先の URL（シェア文・OGP 用。ローカルで動かしているときもこの URL を使う）
@@ -47,15 +53,15 @@ export const PENALTY = {
 
 // 評価ランク（仮）
 export const RANKS = [
-  { rank: 'S', min: 66000, comment: '伝説の運転手。乗客は二度と忘れない。' },
-  { rank: 'A', min: 52000, comment: '敏腕ドライバー。営業所長も鼻が高い。' },
-  { rank: 'B', min: 38000, comment: 'まずまずの運行。始末書は1枚で済んだ。' },
-  { rank: 'C', min: 24000, comment: '赤字ギリギリ。乗客の顔が引きつっている。' },
+  { rank: 'S', min: 80000, comment: '伝説の運転手。乗客は二度と忘れない。' },
+  { rank: 'A', min: 64000, comment: '敏腕ドライバー。営業所長も鼻が高い。' },
+  { rank: 'B', min: 48000, comment: 'まずまずの運行。始末書は1枚で済んだ。' },
+  { rank: 'C', min: 32000, comment: '赤字ギリギリ。乗客の顔が引きつっている。' },
   { rank: 'D', min: -Infinity, comment: '運行停止処分。もう一度教習所へ。' },
 ];
 
 // 暴走モード（破壊点）のランク
-// 入門コース：営業所前 → 銀座商店街 → 限界小学校前 → 工場前 → 限界駅（約 2 分）
+// 入門コース：営業所前 → 銀座商店街 → 市役所前 → 限界小学校前 → 限界駅（約 2 分）
 export const INTRO = {
   course: [0, 1, 2, 3, 14],
   timeLimitMarginSec: 50,

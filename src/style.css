@@ -269,7 +269,14 @@ button {
   margin-top: 46px;
 }
 #hud.has-mode.guide-on #toasts {
-  margin-top: 68px;
+  margin-top: 46px;
+}
+/* ピタ止めガイドが出ている間はモードの札を隠して、ガイドをその位置に出す（重ならないように） */
+#hud.guide-on .mode-chip {
+  visibility: hidden;
+}
+#hud.has-mode.guide-on .pita-guide {
+  margin-top: 0;
 }
 .mode-chip.daily {
   color: #9fe3ff;

@@ -2,33 +2,34 @@
 // 仕組み：ゲーム画面を小さなキャンバスに写して MediaRecorder で録画し続ける。録画は一定時間ごとに区切り直し、
 // 2 本を時間をずらして回しておくことで、見せ場が起きたときにはどちらかが「数秒前から」録っている状態にしておく。
 
-// X に貼れるのは H.264 の MP4。H.264 で録れないブラウザは WebM で録る。
-// 最後の 'video/mp4'（コーデック指定なし）は Safari 用（Safari は H.264 で録る）
-const MIME_CANDIDATES = [
-  'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
-  'video/mp4;codecs=avc1.4D401F,mp4a.40.2',
-  'video/mp4;codecs=avc1,mp4a.40.2',
-  'video/mp4;codecs=avc1',
-  'video/webm;codecs=vp9,opus',
-  'video/webm;codecs=vp8,opus',
-  'video/webm',
-  'video/mp4',
+// X に貼れるのは H.264 映像 + AAC 音声の MP4。
+// 1) H.264 + AAC で録れる（Safari、Windows / Mac の Chrome など）→ 音つきの MP4
+// 2) H.264 は録れるが AAC が録れない（音が Opus になる）→ 音なしの MP4（X にそのまま貼れることを優先）
+// 3) MP4 が録れない → 音つきの WebM（X に貼るには変換が必要）
+const FORMATS = [
+  { mime: 'video/mp4;codecs=avc1.42E01E,mp4a.40.2', audio: true, x: true },
+  { mime: 'video/mp4;codecs=avc1.4D401F,mp4a.40.2', audio: true, x: true },
+  { mime: 'video/mp4;codecs=avc1,mp4a.40.2', audio: true, x: true },
+  { mime: 'video/mp4;codecs=avc1', audio: false, x: true },
+  { mime: 'video/webm;codecs=vp9,opus', audio: true, x: false },
+  { mime: 'video/webm;codecs=vp8,opus', audio: true, x: false },
+  { mime: 'video/webm', audio: true, x: false },
 ];
 
 const SEGMENT_SEC = 12; // 録画を区切り直す間隔
 const LEAD_MIN_SEC = 4; // 見せ場の前に最低これだけ入っていてほしい
-const TAIL_SEC = 2.5; // 見せ場のあとに続けて録る秒数
+const TAIL_SEC = 3; // 見せ場のあとに続けて録る秒数（大事故は呼ぶ側で長めに指定）
 const KEEP = 3; // 残すクリップの数
 
 export function clipsSupported() {
-  return !!(window.MediaRecorder && HTMLCanvasElement.prototype.captureStream && pickMime());
+  return !!(window.MediaRecorder && HTMLCanvasElement.prototype.captureStream && pickFormat());
 }
 
-function pickMime() {
+function pickFormat() {
   if (!window.MediaRecorder) return null;
-  for (const m of MIME_CANDIDATES) {
+  for (const f of FORMATS) {
     try {
-      if (MediaRecorder.isTypeSupported(m)) return m;
+      if (MediaRecorder.isTypeSupported(f.mime)) return f;
     } catch (_) {
       /* 次を試す */
     }
@@ -42,8 +43,11 @@ export class ClipRecorder {
    * opts.width / height: 録画サイズ、opts.recorders: 同時に回す本数（スマホは 1 本）
    */
   constructor({ audioStream = null, width = 854, height = 480, recorders = 2 } = {}) {
-    this.mime = pickMime();
+    const f = pickFormat();
+    this.mime = f && f.mime;
     this.ext = this.mime && this.mime.startsWith('video/mp4') ? 'mp4' : 'webm';
+    this.withAudio = !!(f && f.audio);
+    this.xReady = !!(f && f.x);
     this.canvas = document.createElement('canvas');
     this.canvas.width = width;
     this.canvas.height = height;
@@ -64,7 +68,7 @@ export class ClipRecorder {
     this.pending = null;
     const video = this.canvas.captureStream(30);
     const tracks = [...video.getVideoTracks()];
-    if (this.audioStream) tracks.push(...this.audioStream.getAudioTracks());
+    if (this.audioStream && this.withAudio) tracks.push(...this.audioStream.getAudioTracks());
     this.stream = new MediaStream(tracks);
     this.active = true;
     this.slots = [];
@@ -81,7 +85,7 @@ export class ClipRecorder {
     if (!this.active) return;
     let rec;
     try {
-      rec = new MediaRecorder(this.stream, { mimeType: this.mime, videoBitsPerSecond: 2_200_000, audioBitsPerSecond: 96_000 });
+      rec = new MediaRecorder(this.stream, { mimeType: this.mime, videoBitsPerSecond: 2_200_000, ...(this.withAudio ? { audioBitsPerSecond: 128_000 } : {}) });
     } catch (_) {
       this.active = false;
       return;
@@ -127,20 +131,35 @@ export class ClipRecorder {
   }
 
   /**
-   * 見せ場が起きた。score が高いものほど優先して残す。
-   * 少しあとまで録ってから切り出す。
+   * 見せ場が起きた。score が高いものほど優先して残す。tail 秒あとまで録ってから切り出す。
+   * 見せ場の瞬間の画面は静止画（poster）として残す（動画の表紙・シェア画像の背景用）
    */
-  highlight(label, score, now) {
+  highlight(label, score, now, tail = TAIL_SEC) {
     if (!this.active) return;
     if (this.pending) {
       // 近い時間の見せ場はひとつにまとめる（高いほうの名前で）
-      if (score > this.pending.score) Object.assign(this.pending, { label, score });
-      this.pending.until = Math.max(this.pending.until, now + TAIL_SEC);
+      if (score > this.pending.score) Object.assign(this.pending, { label, score, poster: this._still() });
+      this.pending.until = Math.max(this.pending.until, now + tail);
       return;
     }
-    // 残す枠がいっぱいで、今回のほうが低ければ録らない
+    // 残す枠がいっぱいで、今回のほうが低ければ録らない。同じ見出しは高いほう 1 本だけ
     if (this.clips.length >= KEEP && score <= Math.min(...this.clips.map((c) => c.score))) return;
-    this.pending = { label, score, until: now + TAIL_SEC, at: now };
+    const same = this.clips.find((c) => c.label === label);
+    if (same && same.score >= score) return;
+    this.pending = { label, score, until: now + tail, at: now, poster: this._still() };
+  }
+
+  /** いまの録画用キャンバスの静止画 */
+  _still() {
+    try {
+      const c = document.createElement('canvas');
+      c.width = this.canvas.width;
+      c.height = this.canvas.height;
+      c.getContext('2d').drawImage(this.canvas, 0, 0);
+      return c;
+    } catch (_) {
+      return null;
+    }
   }
 
   _cut(now) {
@@ -152,12 +171,19 @@ export class ClipRecorder {
     cands.sort((a, b) => a.startedAt - b.startedAt);
     // 前が LEAD_MIN_SEC より短くても、何もないよりは残す
     const slot = cands.find((s) => p.at - s.startedAt >= LEAD_MIN_SEC) || cands[0];
-    slot.onDone = (blob) => this._add({ label: p.label, score: p.score, blob, ext: this.ext, sec: Math.round(now - slot.startedAt) });
+    slot.onDone = (blob) =>
+      this._add({ label: p.label, score: p.score, blob, ext: this.ext, xReady: this.xReady, withAudio: this.withAudio, poster: p.poster, sec: Math.round(now - slot.startedAt) });
     slot.rec.stop();
   }
 
   _add(clip) {
     if (!clip.blob || clip.blob.size < 2000) return;
+    // 同じ見出しのものは高いほうだけ
+    const k = this.clips.findIndex((c) => c.label === clip.label);
+    if (k >= 0) {
+      if (this.clips[k].score >= clip.score) return;
+      this.clips.splice(k, 1);
+    }
     this.clips.push(clip);
     this.clips.sort((a, b) => b.score - a.score);
     while (this.clips.length > KEEP) this.clips.pop();

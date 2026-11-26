@@ -303,6 +303,21 @@ export class Traffic {
     return { gap, byBus };
   }
 
+  /** バス（ライバルも）が交差点 node の中にいる、または 2 秒以内に入ってくるか。車の真後ろを走っているバスは除く */
+  _busComing(car, node, bus) {
+    const fx = Math.sin(car.h), fz = Math.cos(car.h);
+    for (const b of [bus, ...(this.extraBuses || [])]) {
+      if (!b || b.hidden) continue;
+      const rx = b.x - car.x, rz = b.z - car.z;
+      if (rx * fx + rz * fz < 0 && Math.abs(rx * fz - rz * fx) < 4) continue; // 同じ車線の後ろ
+      const vx = b.vx || 0, vz = b.vz || 0;
+      for (let t = 0; t <= 2; t += 0.5) {
+        if (Math.abs(b.x + vx * t - node.x) < 10.5 && Math.abs(b.z + vz * t - node.z) < 10.5) return true;
+      }
+    }
+    return false;
+  }
+
   update(dt, bus, props) {
     for (const car of this.cars) {
       car.px = car.x; car.pz = car.z; car.ph = car.h;
@@ -317,6 +332,15 @@ export class Traffic {
         }
         const { gap, byBus } = this._gapAhead(car, bus);
         if (gap < 14) target = Math.min(target, Math.max(0, (gap - 3) * 1.1));
+        // 交差点の手前：バスが交差点の中にいるか、すぐ入ってくるなら停止線で待つ（バス優先）
+        let yielding = false;
+        if (!piece.turn) {
+          const remain = piece.len - car.dist;
+          if (remain < 16 && remain > 0.3 && this._busComing(car, car.to, bus)) {
+            target = Math.min(target, Math.max(0, (remain - 1.2) * 1.1));
+            yielding = true;
+          }
+        }
         // 踏切が鳴っていたら手前で止まる
         let atCrossing = false;
         if (this.railway) {
@@ -327,7 +351,7 @@ export class Traffic {
           }
         }
         if (gap < 3.2) target = 0;
-        if (target < 0.5 && byBus) {
+        if (target < 0.5 && (byBus || yielding)) {
           car.wait += dt;
           if (car.wait > 2.5 && car.honkCd <= 0) {
             car.honkCd = 7;
@@ -335,7 +359,7 @@ export class Traffic {
           }
         } else if (target > 1) car.wait = 0;
         // 長時間詰まったら少しずつ前進（すり抜け防止のためバス相手は除く）
-        if (target < 0.5 && !byBus && !atCrossing) {
+        if (target < 0.5 && !byBus && !atCrossing && !yielding) {
           car.wait += dt;
           if (car.wait > 6) target = 2;
         }

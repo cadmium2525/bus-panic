@@ -21,6 +21,7 @@ export function defaultMods() {
     fineMult: 1, // 罰金の倍率
     waitMult: 1, // 待ち客の人数の倍率
     tipMult: 1, // チップの倍率
+    makiMult: 1, // 巻きボーナスの倍率
     hurry: 3, // 急ぎの客の人数
     closures: 1, // 工事の通行止めの数
     rivals: 2, // ライバルバスが現れる回数
@@ -43,6 +44,7 @@ export const DAILY_MODS = [
   { id: 'turbo', icon: '🚀', name: 'ターボ搭載', desc: '最高速と加速が 1.25 倍', apply: (m) => { m.speedMult = 1.25; m.accelMult = 1.25; } },
   { id: 'trains', icon: '🚃', name: '踏切地獄', desc: '電車が 2 倍の頻度で来る', apply: (m) => (m.trainPeriod = 17) },
   { id: 'pita3', icon: '🎯', name: 'ピタ止め祭り', desc: 'ピタ止めボーナスが 3 倍', apply: (m) => (m.pitaMult = 3) },
+  { id: 'maki2', icon: '⏩', name: '巻き2倍デー', desc: '区間を速く走った巻きボーナスが 2 倍', apply: (m) => (m.makiMult = 2) },
 ];
 
 const pad = (n) => String(n).padStart(2, '0');
