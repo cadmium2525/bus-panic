@@ -1,0 +1,20 @@
+{
+  "name": "genkai-bus",
+  "private": true,
+  "version": "1.0.0",
+  "description": "限界バス運行！ 〜遅延上等、罰金覚悟の路線バス〜 (Three.js browser game)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "vite": "6.4.6"
+  }
+}

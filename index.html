@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#1f8a4c" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="description" content="限界バス運行！ 〜遅延上等、罰金覚悟の路線バス〜 ブラウザで遊べる3Dバス運転スコアアタック" />
+    <title>限界バス運行！</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <canvas id="game" aria-label="ゲーム画面"></canvas>
+
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+      <div class="hud-tl panel" id="hud-next">
+        <div class="next-head"><span class="badge" id="hud-stop-no">1/15</span><span class="next-label">次は</span></div>
+        <div class="next-name" id="hud-stop-name">—</div>
+        <div class="next-kana" id="hud-stop-kana"></div>
+        <div class="next-row"><span id="hud-sched">定刻 --:--</span><span class="status ok" id="hud-status">—</span></div>
+        <div class="next-row"><span id="hud-waiting">待ち客 -人</span><span class="dist"><span class="arrow" id="hud-arrow">▲</span><span id="hud-dist">-</span></span></div>
+        <div class="wait-icons" id="hud-wait-icons"></div>
+        <div class="leave hidden" id="hud-leave"></div>
+      </div>
+      <div class="hud-tc">
+        <div class="clock" id="hud-clock">8:00:00</div>
+        <div class="remain" id="hud-remain">残り -:--</div>
+      </div>
+      <div class="hud-tr">
+        <div class="tr-buttons">
+          <button class="icon-btn" id="btn-reset" aria-label="路面へ復帰">↺<small>復帰</small></button>
+          <button class="icon-btn" id="btn-pause" aria-label="ポーズ">⏸<small>停止</small></button>
+        </div>
+        <div class="panel money">
+          <div><span>運賃</span><b id="hud-fare">¥0</b></div>
+          <div class="fine"><span>罰金</span><b id="hud-fine">¥0</b></div>
+          <div class="sum"><span>見込み</span><b id="hud-total">¥0</b></div>
+        </div>
+        <div class="minimap-wrap" id="minimap-wrap">
+          <canvas id="minimap"></canvas>
+          <button class="mini-toggle" id="btn-minimap" aria-label="ミニマップ切替">地図</button>
+        </div>
+      </div>
+      <div class="hud-bc panel speedo">
+        <div class="speed"><b id="hud-speed">0</b><span>km/h</span></div>
+        <div class="speed-bar"><i id="hud-speed-bar"></i></div>
+        <div class="onboard" id="hud-onboard">乗車 0/60</div>
+      </div>
+      <div id="dwell" class="dwell hidden"><div class="dwell-label" id="dwell-label">乗降中…</div><div class="dwell-track"><i id="dwell-bar"></i></div></div>
+      <div id="toasts"></div>
+      <div id="floats"></div>
+      <div id="bigmsg" class="bigmsg"><div id="bigmsg-main"></div><div id="bigmsg-sub"></div></div>
+
+      <!-- タッチ操作 -->
+      <div id="touch" class="touch">
+        <div class="pad pad-left">
+          <div class="tbtn steer" data-ctl="left" aria-label="左">◀</div>
+          <div class="tbtn steer" data-ctl="right" aria-label="右">▶</div>
+        </div>
+        <div class="pad pad-right">
+          <div class="tbtn brake" data-ctl="brake" aria-label="ブレーキ">ブレーキ<small>後退</small></div>
+          <div class="tbtn accel" data-ctl="accel" aria-label="アクセル">アクセル</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- タイトル -->
+    <section id="screen-title" class="screen">
+      <div class="title-card">
+        <div class="kicker">ブラウザ3Dバカゲー</div>
+        <h1 class="logo"><span>限界</span>バス運行！</h1>
+        <p class="tagline">〜遅延上等、罰金覚悟の路線バス〜</p>
+        <p class="concept">急げば儲かる、暴れれば赤字。</p>
+        <div class="menu">
+          <button class="btn primary" id="btn-start">出発進行！</button>
+          <button class="btn" id="btn-howto">遊び方</button>
+          <button class="btn" id="btn-settings">設定</button>
+        </div>
+        <div class="best" id="title-best"></div>
+        <p class="hint-landscape">📱 スマホは横画面がおすすめです</p>
+        <p class="disclaimer">※ 本作はフィクションです。登場する街・会社・施設は架空のものです。<br />現実の危険運転を推奨するものではありません。運転は安全第一で。</p>
+      </div>
+    </section>
+
+    <!-- 遊び方 -->
+    <section id="screen-howto" class="screen hidden">
+      <div class="card scroll">
+        <h2>遊び方</h2>
+        <ol class="rules">
+          <li><b>15か所のバス停</b>を順番に回り、終点の<b>限界駅</b>を目指します。</li>
+          <li>緑に光る<b>停留所の枠内で停車</b>（5km/h以下）すると乗降開始。1人乗るごとに<b>運賃¥250</b>。</li>
+          <li>定刻を過ぎると<b>10秒ごとに待ち客が1人</b>帰ってしまいます。定刻までに着けば<b>定時ボーナス</b>。</li>
+          <li>コーン・植木鉢・標識・看板・ガードレール・他の車にぶつけると<b>罰金</b>（同じ物は1回だけ）。</li>
+          <li>路地は近道。でも障害物だらけ。<b>安全な大通りか、危険な近道か</b>は自分次第。</li>
+          <li>制限時間内に終点へ。終点に早めに入って3秒停車すると、残りの停留所を通過して運行終了できます。</li>
+        </ol>
+        <table class="price">
+          <tr><th>コーン・植木鉢</th><td>−¥200</td></tr>
+          <tr><th>道路標識・看板</th><td>−¥1,000</td></tr>
+          <tr><th>ガードレール</th><td>−¥2,000</td></tr>
+          <tr><th>他車への衝突</th><td>−¥3,000</td></tr>
+          <tr><th>激突で乗客転倒</th><td>−¥500</td></tr>
+          <tr><th>路面へ復帰（R）</th><td>−¥1,000</td></tr>
+        </table>
+        <h3>操作</h3>
+        <div class="controls-grid">
+          <div><kbd>W</kbd>/<kbd>↑</kbd> アクセル</div>
+          <div><kbd>S</kbd>/<kbd>↓</kbd> ブレーキ・後退</div>
+          <div><kbd>A</kbd><kbd>D</kbd>/<kbd>←</kbd><kbd>→</kbd> ハンドル</div>
+          <div><kbd>Space</kbd> サイドブレーキ</div>
+          <div><kbd>R</kbd> 路面へ復帰</div>
+          <div><kbd>Esc</kbd> ポーズ　<kbd>M</kbd> 地図　<kbd>H</kbd> クラクション</div>
+          <div>📱 左下 ◀ ▶ でハンドル、右下でアクセル／ブレーキ（押しっぱなし・指のスライド対応）</div>
+        </div>
+        <button class="btn primary" data-back>もどる</button>
+      </div>
+    </section>
+
+    <!-- 設定 -->
+    <section id="screen-settings" class="screen hidden">
+      <div class="card scroll">
+        <h2>設定</h2>
+        <label class="row"><span>音量</span><input type="range" id="set-volume" min="0" max="1" step="0.05" /></label>
+        <label class="row"><span>画質</span>
+          <select id="set-quality">
+            <option value="auto">自動</option>
+            <option value="low">低（スマホ向け・30fps）</option>
+            <option value="mid">中</option>
+            <option value="high">高（影あり）</option>
+          </select>
+        </label>
+        <label class="row"><span>車内アナウンス（音声合成）</span><input type="checkbox" id="set-announce" /></label>
+        <label class="row"><span>タッチ操作ボタン</span>
+          <select id="set-touch">
+            <option value="auto">自動</option>
+            <option value="on">表示</option>
+            <option value="off">非表示</option>
+          </select>
+        </label>
+        <label class="row"><span>ミニマップ</span><input type="checkbox" id="set-minimap" /></label>
+        <p class="note" id="set-note">※ 画質の一部（建物の密度など）は再読み込み後に反映されます。</p>
+        <button class="btn" id="btn-fullscreen">全画面にする</button>
+        <button class="btn primary" data-back>もどる</button>
+      </div>
+    </section>
+
+    <!-- ポーズ -->
+    <section id="screen-pause" class="screen hidden dim">
+      <div class="card">
+        <h2>一時停止中</h2>
+        <div class="menu">
+          <button class="btn primary" id="btn-resume">運行再開</button>
+          <button class="btn" id="btn-retry-pause">最初からやり直す</button>
+          <button class="btn" id="btn-pause-settings">設定</button>
+          <button class="btn" id="btn-title-pause">タイトルへ</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- リザルト -->
+    <section id="screen-result" class="screen hidden dim">
+      <div class="card result scroll">
+        <div class="result-head">
+          <div class="rank" id="res-rank">A</div>
+          <div>
+            <div class="res-title" id="res-title">運行終了</div>
+            <div class="res-comment" id="res-comment"></div>
+            <div class="res-total"><span>総合スコア</span><b id="res-total">0</b><span>点</span></div>
+            <div class="res-best" id="res-best"></div>
+          </div>
+        </div>
+        <div class="res-cols">
+          <table class="breakdown" id="res-breakdown"></table>
+          <table class="damage" id="res-damage"></table>
+        </div>
+        <details class="stops-detail" open>
+          <summary>停留所別の到着実績</summary>
+          <table class="stops-table" id="res-stops"></table>
+        </details>
+        <div class="menu row-menu">
+          <button class="btn primary" id="btn-retry">もう一度運行する</button>
+          <button class="btn" id="btn-title">タイトルへ</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 縦画面の案内 -->
+    <div id="rotate" class="rotate">
+      <div class="phone">📱</div>
+      <p>端末を横にしてください</p>
+      <small>横画面のほうがハンドルとアクセルを操作しやすくなります</small>
+    </div>
+
+    <!-- 読み込み・非対応 -->
+    <div id="loading" class="loading"><div class="spinner"></div><p>街を建設中…</p></div>
+    <div id="nowebgl" class="screen hidden">
+      <div class="card">
+        <h2>WebGL が使えません</h2>
+        <p>このブラウザまたは端末では 3D 表示（WebGL）が利用できないため、ゲームを開始できません。</p>
+        <p>最新の Chrome / Safari / Edge / Firefox でお試しください。ハードウェアアクセラレーションが無効になっている場合は有効にしてください。</p>
+      </div>
+    </div>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
