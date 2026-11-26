@@ -126,6 +126,25 @@ export const SFX = {
   combo: { preset: 'pirorin', fx: [HP(250)] }, // 定時コンボ・ライバルに勝った
   tip: { preset: 'chiin', fx: [HP(220)] }, // チップ（レジのチーン）
   rival: { preset: 'deden', fx: [HP(200), SHELF(-5, 250)] }, // ライバル出現
+  train_horn: {
+    // 電車の警笛（ファァーン）：少しずれた 2 つの音を重ねて、ドップラーで少し下がる
+    layers: [523.3, 659.3].flatMap((f, k) => [
+      { src: 'saw', voices: 3, detune: 9, freq: [[0, f * 1.03], [1.3, f * 0.97]], filter: { type: 'lp', freq: 2600, q: 0.7 }, amp: [[0, 0], [0.05, 1], [1.05, 0.85], [1.35, 0]], vibrato: { rate: 5.5, depth: 0.08 }, drive: 3, gain: -5 - k * 2 },
+    ]),
+    fx: [HP(260), { type: 'eq', bands: [{ type: 'peak', freq: 1400, gain: 3, q: 0.9 }] }, { type: 'reverb', size: 1.2, decay: 1.6, mix: 0.22 }],
+  },
+  train_crash: {
+    // 電車との衝突（ガシャーン＋金属のきしみ）
+    layers: [
+      { src: 'noise', width: 0.9, filter: { type: 'bp', freq: [[0, 3200], [0.6, 900, 'exp']], q: 0.7 }, amp: { a: 0.001, h: 0.08, d: 0.7 }, drive: 6, gain: -1 },
+      { src: 'modal', freq: 290, modes: [[1, 0.9, 1], [2.31, 0.7, 0.6], [3.7, 0.5, 0.45], [5.2, 0.3, 0.3]], amp: { a: 0.001, h: 0.4, d: 0.8 }, gain: -3 },
+      { at: 0.05, src: 'crackle', density: 120, filter: { type: 'hp', freq: 2800 }, len: 0.8, amp: [[0, 1], [0.8, 0]], gain: -9 },
+      { at: 0.15, src: 'sine', freq: [[0, 2300], [0.9, 1600]], vibrato: { rate: 13, depth: 0.6 }, amp: [[0, 0], [0.05, 0.7], [0.8, 0.5], [1.1, 0]], gain: -14 },
+      { src: 'sine', freq: [[0, 160], [0.15, 70, 'exp']], amp: { a: 0.001, d: 0.2 }, gain: -12 },
+    ],
+    fx: [HP(150), SHELF(-5, 230), { type: 'reverb', size: 1.1, decay: 1.4, mix: 0.18 }],
+    loudCap: -11,
+  },
 };
 
 /** 踏切の警報音 1 打（カーン） */

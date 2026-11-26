@@ -843,6 +843,27 @@ button {
   font-weight: 700;
   opacity: 0.85;
 }
+.btn.intro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  font-size: 15px;
+  padding: 8px 10px;
+  background: rgba(255, 210, 63, 0.16);
+  border-color: rgba(255, 210, 63, 0.75);
+  color: #fff3c4;
+}
+.btn.intro small {
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.85;
+}
+.btn.intro.done {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
 .mode-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -914,6 +935,53 @@ button {
   touch-action: pan-y;
 }
 /* 結果画面のボタンは常に見えるように下に固定 */
+.res-clips {
+  margin: 10px 0 4px;
+}
+.clips-head {
+  font-weight: 900;
+  color: var(--yellow);
+  margin-bottom: 6px;
+}
+.clips-head small {
+  color: #d6dde6;
+  font-weight: 600;
+  font-size: 11.5px;
+  margin-left: 6px;
+}
+.clips-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px;
+}
+.clip {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.clip video {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 10px;
+  background: #000;
+  cursor: pointer;
+}
+.clip figcaption {
+  font-size: 12px;
+  font-weight: 800;
+}
+.btn.small {
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: 13px;
+}
+.row small.sub {
+  display: block;
+  font-size: 11px;
+  opacity: 0.7;
+  font-weight: 500;
+}
 .card.result .row-menu {
   position: sticky;
   bottom: -16px;

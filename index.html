@@ -105,7 +105,8 @@
         <p class="tagline">〜遅延上等、罰金覚悟の路線バス〜</p>
         <p class="concept">急げば儲かる、暴れれば赤字。</p>
         <div class="menu">
-          <button class="btn primary" id="btn-start">出発進行！<small>通常運行</small></button>
+          <button class="btn intro" id="btn-intro">🔰 はじめての方は 入門コース<small id="intro-desc">停留所 5 か所・約 2 分</small></button>
+          <button class="btn primary" id="btn-start">出発進行！<small>通常運行（停留所 15 か所・約 7 分）</small></button>
           <div class="mode-row">
             <button class="btn mode daily" id="btn-daily"><b>📅 日替わりチャレンジ</b><small id="daily-desc">今日の条件</small></button>
             <button class="btn mode rampage" id="btn-rampage"><b>🦖 暴走モード</b><small id="rampage-desc">2分間ひたすら壊す</small></button>
@@ -134,8 +135,9 @@
           <li>ブレーキは長く踏むほど強くなります。高速から思いきり踏むと<b>急ブレーキ</b>で乗客に怒られます。</li>
           <li><b>ピタ止め</b>：光の柱の真下（白い枠）にぴったり止めるとボーナス。近づくと画面下に「ピタ止めまで ○m」のガイドが出ます。<b>定時コンボ</b>が続くほど定時ボーナスが増えます（定刻から 5 秒以内なら定時）。</li>
           <li><b>ハプニング</b>：工事の通行止め（地図の ✕）、時間内に送り届けるとチップをくれる<b>急ぎの客</b>、客を横取りに来る<b>ライバルのバス</b>、カンカン鳴る<b>踏切</b>（突破すると ¥2,000）。</li>
-          <li><b>日替わりチャレンジ</b>は毎日条件が変わり、全員同じ条件で遊べます。<b>暴走モード</b>は 2 分間、壊せば壊すほど高得点（違う種類の物を続けて壊すと倍率アップ）。</li>
-          <li>自己ベストの走りは<b>ゴースト</b>として次の運行に現れます。<b>実績</b>は 22 種類。</li>
+          <li>まずは<b>入門コース</b>（停留所 5 か所・約 2 分）で操作に慣れましょう。<b>日替わりチャレンジ</b>は毎日条件が変わり、全員同じ条件で遊べます。<b>暴走モード</b>は 2 分間、壊せば壊すほど高得点（違う種類の物を続けて壊すと倍率アップ）。</li>
+          <li>自己ベストの走りは<b>ゴースト</b>として次の運行に現れます。<b>実績</b>は 24 種類。</li>
+          <li>設定で「ハイライト動画を録る」をオンにすると、事故やピタ止めの瞬間が数秒の動画になり、結果画面から保存できます（PC は最初からオン）。</li>
         </ol>
         <table class="price">
           <tr><th>コーン・植木鉢</th><td>−¥200</td></tr>
@@ -145,6 +147,8 @@
           <tr><th>激突で乗客転倒</th><td>−¥500</td></tr>
           <tr><th>路面へ復帰（R）</th><td>−¥1,000</td></tr>
           <tr><th>急ブレーキ（時速50km以上で強く踏み続ける。最初の2回は注意だけ）</th><td>−¥300</td></tr>
+          <tr><th>踏切無視（遮断機を突破）</th><td>−¥2,000</td></tr>
+          <tr><th>電車と接触事故</th><td>−¥10,000</td></tr>
         </table>
         <h3>操作</h3>
         <div class="controls-grid">
@@ -185,6 +189,14 @@
         </label>
         <label class="row"><span>ミニマップ</span><input type="checkbox" id="set-minimap" /></label>
         <label class="row"><span>自己ベストのゴーストを表示</span><input type="checkbox" id="set-ghost" /></label>
+        <label class="row"
+          ><span>ハイライト動画を録る<small class="sub">事故やピタ止めの瞬間を数秒の動画に（端末によっては重くなります）</small></span
+          ><select id="set-clips">
+            <option value="auto">自動（PC だけ）</option>
+            <option value="on">録る</option>
+            <option value="off">録らない</option>
+          </select></label
+        >
         <label class="row"><span>初心者向けヒント</span><input type="checkbox" id="set-hints" /></label>
         <p class="note" id="set-note">※ 画質の一部（建物の密度など）は再読み込み後に反映されます。</p>
         <button class="btn" id="btn-fullscreen">全画面にする</button>
@@ -226,6 +238,10 @@
             <div class="res-total"><span>総合スコア</span><b id="res-total">0</b><span>点</span></div>
             <div class="res-best" id="res-best"></div>
           </div>
+        </div>
+        <div class="res-clips hidden" id="res-clips">
+          <div class="clips-head">🎬 ハイライト動画 <small id="clips-note">保存して X にそのまま貼れます</small></div>
+          <div class="clips-list" id="clips-list"></div>
         </div>
         <div class="res-cols">
           <table class="breakdown" id="res-breakdown"></table>

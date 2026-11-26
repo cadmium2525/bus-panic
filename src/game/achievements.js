@@ -2,7 +2,8 @@
 const KEY = 'genkai-bus:achievements:v1';
 
 export const ACHIEVEMENTS = [
-  { id: 'first', icon: '🚌', name: '初運行', desc: '終点の限界駅にたどり着く' },
+  { id: 'intro', icon: '🔰', name: '研修修了', desc: '入門コースを走りきる' },
+  { id: 'first', icon: '🚌', name: '初運行', desc: '通常運行で終点の限界駅にたどり着く' },
   { id: 'allstops', icon: '🗺️', name: '全停留所制覇', desc: '15 か所すべてで乗降して終点へ' },
   { id: 'ontime', icon: '⏰', name: '定時運行の鬼', desc: '全停留所に定時で到着する' },
   { id: 'clean', icon: '🕊️', name: '無事故無違反', desc: '罰金・ペナルティ 0 円で終点へ' },
@@ -24,6 +25,7 @@ export const ACHIEVEMENTS = [
   { id: 'tipking', icon: '💰', name: 'チップ長者', desc: '1 回の運行で急ぎのお客さんを 3 人間に合わせる' },
   { id: 'daily', icon: '📅', name: '日替わり完走', desc: '日替わりチャレンジで終点にたどり着く' },
   { id: 'rampage', icon: '🦖', name: '怪獣バス', desc: '暴走モードで 100,000 点以上' },
+  { id: 'train', icon: '🚃', name: '開かずの踏切の逆襲', desc: '電車にはね飛ばされる' },
 ];
 
 function read() {
@@ -60,6 +62,7 @@ export function achievementsForResult(r) {
   const out = [];
   const clear = r.reason === 'clear';
   if (r.mode === 'rampage') return r.total >= 100000 ? ['rampage'] : [];
+  if (r.mode === 'intro') return r.reason === 'clear' ? ['intro'] : [];
   if (clear) out.push('first');
   if (clear && r.allStopsBonus > 0) out.push('allstops');
   if (clear && r.stops.every((s) => s.status === 'done' && s.onTime)) out.push('ontime');

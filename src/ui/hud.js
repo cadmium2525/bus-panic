@@ -132,6 +132,7 @@ export class Hud {
     let chip = '';
     if (mode === 'daily' && daily) chip = `📅 ${daily.picks.map((p) => `${p.icon}${p.name}`).join('・')}`;
     if (mode === 'rampage') chip = '🦖 暴走モード';
+    if (mode === 'intro') chip = '🔰 入門コース';
     e.mode.textContent = chip;
     e.mode.className = `mode-chip ${mode}` + (chip ? '' : ' hidden');
     e.root.classList.toggle('has-mode', !!chip);

@@ -11,6 +11,7 @@ export const RULES = {
   rivalWin: 1000, // ライバルより先に停留所に着いたボーナス
   crossingPenalty: 2000, // 遮断機が下りている踏切に入った（踏切無視）
   crossingSlackSec: 8, // 踏切を渡る区間の時刻表の余裕（電車待ち）
+  trainCrashPenalty: 10000, // 電車との接触事故（その他ペナルティ）
   onTimeGraceSec: 5, // 遅延がこの秒数以下なら「定時」
   allStopsBonus: 5000, // 全停留所制覇ボーナス
   resetPenalty: 1000, // R: 路面復帰ペナルティ
@@ -54,6 +55,19 @@ export const RANKS = [
 ];
 
 // 暴走モード（破壊点）のランク
+// 入門コース：営業所前 → 銀座商店街 → 限界小学校前 → 工場前 → 限界駅（約 2 分）
+export const INTRO = {
+  course: [0, 1, 2, 3, 14],
+  timeLimitMarginSec: 50,
+  ranks: [
+    { rank: 'S', min: 21000, comment: '即戦力。明日から本線をお願いします。' },
+    { rank: 'A', min: 16000, comment: '筋がいい。研修はもう十分。' },
+    { rank: 'B', min: 11000, comment: '合格。でも営業所長は少し心配そう。' },
+    { rank: 'C', min: 6000, comment: '補習あり。ブレーキは早めに。' },
+    { rank: 'D', min: -Infinity, comment: '研修やり直し。まずは安全運転から。' },
+  ],
+};
+
 export const RAMPAGE = {
   seconds: 120,
   comboWindow: 2.5, // この秒数以内に次を壊すとコンボ継続（違う種類なら +1、同じ種類なら据え置き）
@@ -86,10 +100,11 @@ export const BUS = {
   collisionRadius: 1.3,
 };
 
+// 車の台数は画質によらずほぼ同じ（暴走モードの得点や事故の起きやすさが端末で変わらないように）
 export const QUALITY = {
-  low: { label: '低', dprCap: 1, shadows: false, fogFar: 170, cars: 8, fpsCap: 30, decorDensity: 0.5 },
+  low: { label: '低', dprCap: 1.25, shadows: false, fogFar: 170, cars: 14, fpsCap: 30, decorDensity: 0.5 },
   mid: { label: '中', dprCap: 1.5, shadows: false, fogFar: 260, cars: 14, fpsCap: 60, decorDensity: 0.8 },
-  high: { label: '高', dprCap: 2, shadows: true, fogFar: 380, cars: 20, fpsCap: 0, decorDensity: 1 },
+  high: { label: '高', dprCap: 2, shadows: true, fogFar: 380, cars: 18, fpsCap: 0, decorDensity: 1 },
 };
 
 export const PHYSICS_DT = 1 / 120;

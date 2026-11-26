@@ -98,6 +98,7 @@ export class Minimap {
     // 停留所
     for (const s of this.stops) {
       const st = stopStates[s.index];
+      if (st === 'off') continue; // このコースでは回らない停留所
       const isNext = s.index === next;
       if (st === 'done' && !isNext) {
         g.fillStyle = 'rgba(80,80,80,0.8)';

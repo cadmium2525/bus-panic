@@ -125,6 +125,16 @@ export function legCrossesRail() {
   });
 }
 
+/** 停留所を一部だけ回るコース（入門コース）の時刻表。course は停留所番号の並び */
+export function courseSchedule(stops, course) {
+  const eq = course.map((i, k) => {
+    const p = legPath(k ? stops[course[k - 1]] : null, stops[i]);
+    const rail = !!p && p.path.some((t) => RAIL.rows.includes(t.r));
+    return (legTime(p) + (rail ? RULES.crossingSlackSec : 0)) * RULES.scheduleSpeed;
+  });
+  return buildSchedule(eq);
+}
+
 export function createStops() {
   // 区間ごとの所要時間（距離 ÷ 想定速度 ＋ 曲がり角 ＋ 踏切待ち）を距離に換算して時刻表を作る
   const cross = legCrossesRail();

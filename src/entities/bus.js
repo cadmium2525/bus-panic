@@ -248,6 +248,10 @@ export class Bus {
     this.brakeHold = 0;
     this.slip = 0;
     this.decel = 0;
+    this.air = 0; // 宙に浮いている高さ（電車にはね飛ばされたとき）
+    this.airVy = 0;
+    this.tumble = 0; // 横転（見た目だけ）
+    this.tumbleV = 0;
     this._aLat = 0;
     this._aLong = 0;
   }
@@ -283,10 +287,28 @@ export class Bus {
    * env: { staticHash, cars, props, t }
    * 戻り値: { impact: 衝突で失った速度(m/s), propsSlow }
    */
+  /** はね飛ばされる（電車など）。dvx, dvz: 加える速度、up: 上向きの速度、spin: 回転、tumble: 横転の速さ */
+  knock(dvx, dvz, up = 6, spin = 0, tumble = 0) {
+    this.knockT = 1.2; // しばらく同じ相手には当たらない
+    this.vx += dvx;
+    this.vz += dvz;
+    this.airVy = Math.max(this.airVy, up);
+    this.air = Math.max(this.air, 0.02);
+    this.spin += spin;
+    this.tumbleV += tumble;
+  }
+
+  get airborne() {
+    return this.air > 0.05;
+  }
+
   step(dt, input, env) {
     this.px = this.x;
     this.pz = this.z;
     this.ph = this.h;
+    if (this.knockT > 0) this.knockT -= dt;
+    // 宙に浮いている間は操作がきかない
+    if (this.airborne) input = { throttle: false, brake: false, steer: 0, handbrake: false };
     const fx = Math.sin(this.h), fz = Math.cos(this.h);
     const rx = -fz, rz = fx; // 右方向
     let vf = this.vx * fx + this.vz * fz;
@@ -348,7 +370,7 @@ export class Bus {
     if (input.handbrake && Math.abs(vf) > 4) yaw *= 1.45;
 
     // 横滑り（グリップ）
-    const grip = input.handbrake ? BUS.handbrakeGrip : BUS.grip;
+    const grip = (input.handbrake ? BUS.handbrakeGrip : BUS.grip) * (this.airborne ? 0.04 : 1);
     vl *= Math.exp(-grip * dt);
 
     this.h += (yaw + this.spin) * dt;
@@ -359,6 +381,27 @@ export class Bus {
     this.vz = nfz * vf + nrz * vl;
     this.x += this.vx * dt;
     this.z += this.vz * dt;
+    // 宙に浮いているとき（重力・着地のバウンド・横転）
+    if (this.air > 0 || this.airVy > 0) {
+      this.airVy -= 22 * dt;
+      this.air += this.airVy * dt;
+      this.tumble += this.tumbleV * dt;
+      if (this.air <= 0) {
+        this.air = 0;
+        this.landing = Math.abs(this.airVy);
+        this.airVy = this.airVy < -5 ? -this.airVy * 0.32 : 0;
+        if (this.airVy > 0) this.air = 0.001;
+        this.tumbleV *= 0.35;
+        this.vx *= 0.7;
+        this.vz *= 0.7;
+      }
+    } else if (this.tumble !== 0) {
+      // 着地したら、近いほうの向きに起き上がる（必ずタイヤが下）
+      const up = Math.round(this.tumble / (Math.PI * 2)) * Math.PI * 2;
+      this.tumbleV = 0;
+      this.tumble += (up - this.tumble) * Math.min(1, dt * 6);
+      if (Math.abs(up - this.tumble) < 0.01) this.tumble = 0;
+    }
 
     // 姿勢（ロール・ピッチ）用の加速度
     const aLat = vf * yaw;
@@ -435,8 +478,8 @@ export class Bus {
             }
           }
         }
-        // 動く箱（電車など）
-        if (env.boxes) {
+        // 動く箱（電車など）。はね飛ばされて宙にいる間は当たらない
+        if (env.boxes && !this.airborne && !(this.knockT > 0)) {
           for (const b of env.boxes) {
             const hit = circleVsAABB(c.x, c.z, c.r, b);
             if (hit) {
@@ -540,10 +583,10 @@ export class Bus {
     const z = this.pz + (this.z - this.pz) * alpha;
     let dh = this.h - this.ph;
     const h = this.ph + dh * alpha;
-    m.root.position.set(x, this.lift, z);
+    m.root.position.set(x, this.lift + this.air, z);
     m.root.rotation.set(0, h, 0);
-    m.body.position.y = this.bounce * 0.6;
-    m.body.rotation.set(this.pitch, 0, this.roll);
+    m.body.position.y = this.bounce * 0.6 + (this.tumble ? Math.abs(Math.sin(this.tumble)) * 1.3 : 0);
+    m.body.rotation.set(this.pitch, 0, this.roll + this.tumble);
     for (const w of m.wheels) {
       w.mesh.rotation.x = this.wheelRot;
       if (w.front) w.pivot.rotation.y = this.steer * BUS.maxSteer * 0.8;

@@ -161,3 +161,19 @@ test('おすすめルートは歩道を左に見る向きで停留所に入る�
     prev = { c: s.c, r: s.r };
   }
 });
+
+test('入門コースは 5 停留所・約 2 分で、終点は限界駅', async () => {
+  const { courseSchedule } = await import('../src/game/stops.js');
+  const { INTRO } = await import('../src/config.js');
+  const stops = createStops();
+  assert.equal(INTRO.course.length, 5);
+  assert.ok(stops[INTRO.course[INTRO.course.length - 1]].terminal);
+  const t = courseSchedule(stops, INTRO.course);
+  assert.equal(t.length, 5);
+  for (let k = 1; k < t.length; k++) assert.ok(t[k] > t[k - 1]);
+  assert.ok(t[t.length - 1] >= 90 && t[t.length - 1] <= 180, `入門コースの時間 ${t[t.length - 1]}s`);
+  assert.equal(rankFor(25000, INTRO.ranks).rank, 'S');
+  const { achievementsForResult } = await import('../src/game/achievements.js');
+  assert.deepEqual(achievementsForResult({ mode: 'intro', reason: 'clear' }), ['intro']);
+  assert.deepEqual(achievementsForResult({ mode: 'intro', reason: 'timeout' }), []);
+});

@@ -5,6 +5,9 @@
 //            BGM ─(ローシェルフ -2dB)┘
 import { AUDIO } from '../audio/manifest.js';
 
+/** 最初の操作の直後に鳴らすので、先に読み込む効果音 */
+const PRIORITY = ['ui_click', 'ui_ok', 'count', 'go', 'door', 'coin', 'ontime', 'next_stop'];
+
 const decode = (ctx, buf) =>
   new Promise((res, rej) => {
     // 古い Safari はコールバック形式のみ
@@ -59,6 +62,8 @@ export class Audio {
   /** 読み込む順番：タイトル曲 → 効果音 → ループ音 → 走行中の曲 → その他 */
   static allNames() {
     const names = [
+      // 最初の操作の直後に鳴らす音を先にデコードする
+      ...PRIORITY.map((k) => 'sfx:' + k),
       'bgm:title',
       ...Object.keys(AUDIO.sfx).map((k) => 'sfx:' + k),
       ...Object.keys(AUDIO.loops).map((k) => 'loop:' + k),
@@ -68,6 +73,16 @@ export class Audio {
       ...Object.keys(AUDIO.bgm).map((k) => 'bgm:' + k),
     ];
     return [...new Set(names)];
+  }
+
+  /** ハイライト動画用に、ゲーム音を MediaStream として取り出す */
+  captureStream() {
+    if (!this.ctx || !this.out || !this.ctx.createMediaStreamDestination) return null;
+    if (!this.streamDest) {
+      this.streamDest = this.ctx.createMediaStreamDestination();
+      this.out.connect(this.streamDest);
+    }
+    return this.streamDest.stream;
   }
 
   /** 初回のユーザー操作で呼ぶ */
@@ -88,6 +103,7 @@ export class Audio {
       comp.attack.value = 0.003;
       comp.release.value = 0.25;
       this.master.connect(hp).connect(comp).connect(ctx.destination);
+      this.out = comp;
       this.sfxBus = ctx.createGain();
       this.sfxBus.gain.value = this.sfxVolume;
       this.sfxBus.connect(this.master);
@@ -138,7 +154,8 @@ export class Audio {
   _whenLoaded(name, fn) {
     if (this.buffers.has(name)) return fn();
     if (!this._waiting) this._waiting = new Map();
-    this._waiting.set(name, fn);
+    const prev = this._waiting.get(name);
+    this._waiting.set(name, prev ? () => (prev(), fn()) : fn);
   }
 
   setVolume(v) {
@@ -182,7 +199,14 @@ export class Audio {
     if (!this.ok) return;
     const name = 'sfx:' + key;
     const b = this.buffers.get(name);
-    if (!b) return;
+    if (!b) {
+      // 最初のタップ直後はまだデコード中のことがある。大事な音は少し遅れても鳴らす
+      if (PRIORITY.includes(key) && !opts._late) {
+        const t0 = performance.now();
+        this._whenLoaded(name, () => performance.now() - t0 < 700 && this.play(key, { ...opts, _late: true }));
+      }
+      return;
+    }
     const max = opts.max ?? 4;
     const cur = this.playing.get(name) || 0;
     if (cur >= max) return;

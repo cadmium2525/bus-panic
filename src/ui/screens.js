@@ -1,10 +1,11 @@
 // タイトル・遊び方・設定・ポーズ・リザルト画面の制御
 import { formatClock, formatYen } from '../game/rules.js';
-import { PENALTY } from '../config.js';
+import { PENALTY, RULES } from '../config.js';
 import { loadBest, submitBest, saveSettings } from '../core/storage.js';
 import { ACHIEVEMENTS, loadAchievements } from '../game/achievements.js';
 import { shareResult, postToX } from './share.js';
 import { dailyChallenge } from '../game/modes.js';
+import { saveClip } from '../core/clips.js';
 
 const $ = (id) => document.getElementById(id);
 const SCREENS = ['title', 'howto', 'settings', 'pause', 'result', 'achievements'];
@@ -47,6 +48,7 @@ export class Screens {
 
   _bind() {
     this._click('btn-start', () => this.game.startRun('normal'), 'ui_ok');
+    this._click('btn-intro', () => this.game.startRun('intro'), 'ui_ok');
     this._click('btn-daily', () => this.game.startRun('daily'), 'ui_ok');
     this._click('btn-rampage', () => this.game.startRun('rampage'), 'ui_ok');
     this._click('btn-achievements', () => {
@@ -138,6 +140,10 @@ export class Screens {
       saveSettings(s);
       this._applyTouchMode();
     });
+    $('set-clips').addEventListener('change', (e) => {
+      s.clips = e.target.value;
+      saveSettings(s);
+    });
     $('set-minimap').addEventListener('change', (e) => {
       s.minimap = e.target.checked;
       saveSettings(s);
@@ -158,6 +164,52 @@ export class Screens {
     $('set-announce').checked = !!s.announce;
     $('set-touch').value = s.touch;
     $('set-minimap').checked = !!s.minimap;
+    $('set-clips').value = s.clips || 'auto';
+  }
+
+  /** 結果画面のハイライト動画（運行の終わりに録画が切り出されたら呼ばれる） */
+  showClips(clips) {
+    const box = $('res-clips');
+    const list = $('clips-list');
+    for (const u of this._clipUrls || []) URL.revokeObjectURL(u);
+    this._clipUrls = [];
+    list.textContent = '';
+    if (!clips || !clips.length) {
+      box.classList.add('hidden');
+      return;
+    }
+    box.classList.remove('hidden');
+    $('clips-note').textContent = clips[0].ext === 'mp4' ? '保存して X にそのまま貼れます' : '保存できます（WebM 形式。X に貼るには MP4 への変換が必要です）';
+    clips.forEach((c, k) => {
+      const url = URL.createObjectURL(c.blob);
+      this._clipUrls.push(url);
+      const fig = document.createElement('figure');
+      fig.className = 'clip';
+      const v = document.createElement('video');
+      v.src = url;
+      v.muted = true;
+      v.loop = true;
+      v.playsInline = true;
+      v.autoplay = true;
+      v.setAttribute('playsinline', '');
+      v.addEventListener('click', () => {
+        v.muted = !v.muted;
+        if (v.paused) v.play();
+      });
+      const cap = document.createElement('figcaption');
+      cap.textContent = c.label;
+      const btn = document.createElement('button');
+      btn.className = 'btn small';
+      btn.textContent = '保存';
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        btn.blur();
+        const r = await saveClip(c, `genkai-bus-${k + 1}`);
+        if (r === 'downloaded') btn.textContent = '保存しました';
+      });
+      fig.append(v, cap, btn);
+      list.appendChild(fig);
+    });
   }
 
   _fullscreen() {
@@ -205,6 +257,11 @@ export class Screens {
     const db = loadBest('daily', d.key);
     $('daily-desc').textContent = d.picks.map((p) => `${p.icon}${p.name}`).join('＋') + (db ? `／今日のベスト ${db.total.toLocaleString('ja-JP')}` : '');
     $('btn-daily').title = d.picks.map((p) => `${p.name}：${p.desc}`).join('\n');
+    const ib = loadBest('intro');
+    $('intro-desc').textContent = ib ? `停留所 5 か所・約 2 分／ベスト ${ib.total.toLocaleString('ja-JP')}点（${ib.rank}）` : '停留所 5 か所・約 2 分';
+    // 一度走りきったら目立たせない
+    $('btn-intro').classList.toggle('done', !!loadAchievements().intro);
+    $('btn-intro').firstChild.textContent = loadAchievements().intro ? '🔰 入門コース' : '🔰 はじめての方は 入門コース';
     const rb = loadBest('rampage');
     $('rampage-desc').textContent = rb ? `ベスト ${rb.total.toLocaleString('ja-JP')}点` : '2分間ひたすら壊す';
     const got = Object.keys(loadAchievements()).length;
@@ -222,6 +279,7 @@ export class Screens {
 
   showResult(r) {
     this.lastResult = r;
+    this.showClips(this.game && this.game.lastClips);
     $('btn-share').textContent = '結果を画像でシェア';
     const day = r.daily ? r.daily.key : null;
     const isNew = submitBest({ total: r.total, rank: r.rank, stopsServed: r.stopsServed, damage: r.damage }, r.mode, day);
@@ -262,10 +320,11 @@ export class Screens {
     } else unl.classList.add('hidden');
     let title = r.reason === 'clear' ? (r.allStopsBonus ? '全停留所制覇！ 終点到着' : '終点到着（一部通過）') : '時間切れ… 途中終了';
     if (rampage) title = '暴走モード 終了';
+    else if (r.mode === 'intro') title = `入門コース｜${r.reason === 'clear' ? '終点到着！' : '時間切れ…'}`;
     else if (r.daily) title = `日替わり ${r.daily.key.slice(5).replace('-', '/')}｜${title}`;
     $('res-title').textContent = title;
     $('res-total').previousElementSibling.textContent = rampage ? '破壊点' : '総合スコア';
-    $('btn-retry').textContent = rampage ? 'もう一度暴れる' : r.daily ? '日替わりにもう一度挑む' : 'もう一度運行する';
+    $('btn-retry').textContent = rampage ? 'もう一度暴れる' : r.daily ? '日替わりにもう一度挑む' : r.mode === 'intro' ? '入門コースをもう一度' : 'もう一度運行する';
     $('res-comment').textContent = r.comment;
     totalEl.textContent = '0';
     const bestEl = $('res-best');
@@ -298,8 +357,8 @@ export class Screens {
       '<caption>スコア内訳</caption>' +
       row('運賃収入', '+' + formatYen(r.fare), 'plus') +
       row(`定時ボーナス（最大 ${r.maxCombo} コンボ）`, '+' + formatYen(r.onTimeBonus), 'plus') +
-      row(`運転技術（ピタッ！${r.pita.perfect}回・ライバル${r.rival.wins}勝）`, '+' + formatYen(r.skillBonus), 'plus') +
-      row(`急ぎ客のチップ（${r.hurry.done}/${r.hurry.total}人）`, '+' + formatYen(r.tips), 'plus') +
+      row(`運転技術（ピタッ！${r.pita.perfect}回${r.rival.wins + r.rival.losses ? `・ライバル${r.rival.wins}勝` : ''}）`, '+' + formatYen(r.skillBonus), 'plus') +
+      (r.hurry.total ? row(`急ぎ客のチップ（${r.hurry.done}/${r.hurry.total}人）`, '+' + formatYen(r.tips), 'plus') : '') +
       row('全停留所制覇ボーナス', r.allStopsBonus ? '+' + formatYen(r.allStopsBonus) : '¥0', 'plus') +
       row('器物破損罰金', formatYen(-r.damage), 'minus') +
       row('その他ペナルティ', formatYen(-r.other), 'minus') +
@@ -315,7 +374,8 @@ export class Screens {
       `<tr><td>激突で乗客転倒</td><td>${c.impact}回</td><td class="minus">${formatYen(-c.impact * 500)}</td></tr>` +
       `<tr><td>路面へ復帰</td><td>${c.reset}回</td><td class="minus">${formatYen(-c.reset * 1000)}</td></tr>` +
       `<tr><td>急ブレーキ</td><td>${c.brake || 0}回</td><td class="minus">${formatYen(-(c.brake || 0) * 300)}</td></tr>` +
-      `<tr><td>踏切無視</td><td>${c.crossing || 0}回</td><td class="minus">${formatYen(-(r.crossingFine || 0))}</td></tr>`;
+      `<tr><td>踏切無視</td><td>${c.crossing || 0}回</td><td class="minus">${formatYen(-(r.crossingFine || 0))}</td></tr>` +
+      (c.train ? `<tr><td>電車と接触事故</td><td>${c.train}回</td><td class="minus">${formatYen(-c.train * RULES.trainCrashPenalty)}</td></tr>` : '');
 
     const PITA = { perfect: 'ピタッ！', great: 'ナイス', good: 'まあまあ', miss: '—' };
     let html = '<tr><th>#</th><th>停留所</th><th>定刻</th><th>到着</th><th>遅延</th><th>停車</th><th>乗車</th></tr>';

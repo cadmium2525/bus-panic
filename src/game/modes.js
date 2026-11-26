@@ -65,6 +65,7 @@ export function dailyChallenge(d = new Date()) {
 }
 
 export const MODES = {
+  intro: { id: 'intro', label: '入門コース' },
   normal: { id: 'normal', label: '通常運行' },
   daily: { id: 'daily', label: '日替わりチャレンジ' },
   rampage: { id: 'rampage', label: '暴走モード' },

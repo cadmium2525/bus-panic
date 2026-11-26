@@ -19,7 +19,7 @@ export function shareText(r) {
   if (r.mode === 'rampage') {
     return `限界バス運行！ 暴走モードで街を破壊😈\n破壊点 ${r.total.toLocaleString('ja-JP')}（ランク${r.rank}・${r.rampage.destroyed}個破壊・最大${r.rampage.maxChain}コンボ）\n#限界バス運行`;
   }
-  const head = r.daily ? `限界バス運行！ 日替わり${r.daily.key.slice(5).replace('-', '/')}（${r.daily.picks.map((p) => p.name).join('＋')}）` : '限界バス運行！';
+  const head = r.mode === 'intro' ? '限界バス運行！ 入門コース' : r.daily ? `限界バス運行！ 日替わり${r.daily.key.slice(5).replace('-', '/')}（${r.daily.picks.map((p) => p.name).join('＋')}）` : '限界バス運行！';
   const fine = r.damage + r.other;
   return `${head}\nランク${r.rank}・${r.total.toLocaleString('ja-JP')}点　罰金${formatYen(fine)}\n${stopsEmoji(r)}\n最大${r.maxCombo}コンボ・ピタッ！${r.pita.perfect}回\n#限界バス運行`;
 }
@@ -73,6 +73,7 @@ export function resultImage(r, shot = null) {
   g.fillStyle = 'rgba(255,255,255,0.8)';
   let sub = r.reason === 'clear' ? (r.allStopsBonus ? '全停留所制覇！ 終点到着' : '終点到着') : '時間切れ… 途中終了';
   if (r.mode === 'rampage') sub = '🦖 暴走モード';
+  else if (r.mode === 'intro') sub = `🔰 入門コース｜${sub}`;
   else if (r.daily) sub = `📅 日替わり ${r.daily.key.slice(5).replace('-', '/')}（${r.daily.picks.map((p) => p.name).join('＋')}）｜${sub}`;
   g.fillText(sub, 62, 200);
 

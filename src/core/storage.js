@@ -12,6 +12,7 @@ export const DEFAULT_SETTINGS = {
   announce: true,
   touch: 'auto', // auto | on | off
   minimap: true,
+  clips: 'auto', // ハイライト録画：auto（PC のみ）| on | off
 };
 
 function read(key) {
@@ -41,6 +42,7 @@ export function saveSettings(s) {
 /** モードごとの自己ベストの保存先（日替わりは日付ごと） */
 function bestKey(mode = 'normal', day = null) {
   if (mode === 'rampage') return 'genkai-bus:best:rampage:v1';
+  if (mode === 'intro') return 'genkai-bus:best:intro:v1';
   if (mode === 'daily') return `genkai-bus:best:daily:${day}`;
   return KEY_BEST;
 }

@@ -65,7 +65,9 @@ export const AUDIO = {
     "pita": "audio/sfx_pita.mp3",
     "combo": "audio/sfx_combo.mp3",
     "tip": "audio/sfx_tip.mp3",
-    "rival": "audio/sfx_rival.mp3"
+    "rival": "audio/sfx_rival.mp3",
+    "train_horn": "audio/sfx_train_horn.mp3",
+    "train_crash": "audio/sfx_train_crash.mp3"
   },
   "loops": {
     "engine": {
