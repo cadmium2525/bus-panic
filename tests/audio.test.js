@@ -51,7 +51,7 @@ test('音源の合計サイズは 4MB 以下（初回の通信量を抑える）
 });
 
 test('実績: 結果から解除される実績を判定できる', () => {
-  const stops = Array.from({ length: 15 }, () => ({ status: 'done', delay: -3 }));
+  const stops = Array.from({ length: 15 }, () => ({ status: 'done', delay: -3, onTime: true }));
   const r = { reason: 'clear', allStopsBonus: 5000, stops, damage: 0, other: 0, rank: 'S', fare: 38000, counts: { guardrail: 0, car: 0 } };
   const ids = achievementsForResult(r);
   for (const id of ['first', 'allstops', 'ontime', 'clean', 'rankA', 'rankS', 'fare']) assert.ok(ids.includes(id), id);

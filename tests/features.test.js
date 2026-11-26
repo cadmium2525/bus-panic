@@ -135,3 +135,29 @@ test('急ぎの客とライバルは途中の停留所に、重ならないよ�
     assert.ok(rv[1] - rv[0] >= 3);
   }
 });
+
+test('日替わりの「急ぎの客 6 人」「ライバル 4 回」は毎日その数だけ出る', async () => {
+  const { pickSpaced } = await import('../src/game/happenings.js');
+  const stops = createStops();
+  for (let seed = 1; seed <= 40; seed++) {
+    assert.equal(planHurry(stops, seededRandom(seed), 6).length, 6);
+    assert.equal(planRivals(stops, seededRandom(seed), 4).length, 4);
+    const p = pickSpaced(1, 11, 3, 2, seededRandom(seed));
+    for (let k = 1; k < p.length; k++) assert.ok(p[k] - p[k - 1] >= 2);
+    assert.ok(p[0] >= 1 && p[p.length - 1] <= 11);
+  }
+});
+
+test('おすすめルートは歩道を左に見る向きで停留所に入る（左側通行）', async () => {
+  const { approachPath, TRAVEL } = await import('../src/game/stops.js');
+  let prev = { c: START.c, r: START.r };
+  for (const s of createStops()) {
+    const p = approachPath(prev, s, false);
+    assert.ok(p, s.name);
+    if (!s.terminal) {
+      const a = p.path[p.path.length - 2], b = p.path[p.path.length - 1];
+      assert.deepEqual([b.c - a.c, b.r - a.r], TRAVEL[s.curb], `${s.name} に逆向きで入る`);
+    }
+    prev = { c: s.c, r: s.r };
+  }
+});

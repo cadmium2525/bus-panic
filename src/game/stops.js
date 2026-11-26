@@ -1,5 +1,5 @@
 // 停留所データ（固定ルート15か所）と時刻表
-import { TILE, tileCenter, shortestPath, RAIL } from '../world/map.js';
+import { TILE, tileCenter, shortestPath, drivePath, RAIL } from '../world/map.js';
 import { buildSchedule } from './rules.js';
 import { RULES } from '../config.js';
 
@@ -65,35 +65,71 @@ function geometry(def) {
     center: { x: ctr.x, z: ctr.z },
     curbLine,
     target,
+    travel: { x: TRAVEL[def.curb][0], z: TRAVEL[def.curb][1] },
   };
 }
 
+/** 左側通行での停留所への進行方向（歩道が北なら東行き…） */
+export const TRAVEL = { N: [1, 0], S: [-1, 0], E: [0, 1], W: [0, -1] };
+
+/** 向き（ラジアン、0 = +z）を東西南北の [dc, dr] に丸める */
+export function headingDir(h) {
+  const fx = Math.sin(h), fz = Math.cos(h);
+  return Math.abs(fx) > Math.abs(fz) ? [Math.sign(fx), 0] : [0, Math.sign(fz)];
+}
+
+/**
+ * 停留所まで、正しい向き（歩道を左に見る向き）で入ってくる経路。
+ * startDir（いまの進行方向）を渡すと、その場で U ターンしない経路を選ぶ。曲がり角は少ないほうを選ぶ。
+ */
+export function approachPath(from, stop, allowAlley = false, blocked = null, startDir = null) {
+  const to = { c: stop.c, r: stop.r };
+  const endDir = stop.terminal || !stop.curb ? null : TRAVEL[stop.curb];
+  return (
+    drivePath(from, to, { allowAlley, blocked, startDir, endDir }) ||
+    drivePath(from, to, { allowAlley, blocked, endDir }) ||
+    drivePath(from, to, { allowAlley, blocked }) ||
+    shortestPath(from, to, allowAlley, blocked)
+  );
+}
+
+/** 停留所を出るときの向き（最初は営業所から東向き） */
+export function departDir(prevStop) {
+  return prevStop && prevStop.curb && !prevStop.terminal ? TRAVEL[prevStop.curb] : headingDir(START.heading);
+}
+
+/** 区間の経路（前の停留所 → 次の停留所。幹線のみ） */
+export function legPath(prevStop, stop, blocked = null, allowAlley = false) {
+  const from = prevStop ? { c: prevStop.c, r: prevStop.r } : { c: START.c, r: START.r };
+  return approachPath(from, stop, allowAlley, blocked, departDir(prevStop));
+}
+
+/** 時刻表用の区間の所要時間（停車時間を除く） */
+export function legTime(p) {
+  if (!p) return 300 / RULES.scheduleSpeed;
+  return (p.tiles * TILE) / RULES.scheduleSpeed + (p.turns || 0) * RULES.scheduleTurnSec;
+}
+
 export function legDistances() {
-  const out = [];
-  let prev = { c: START.c, r: START.r };
-  for (const s of STOP_DEFS) {
-    const p = shortestPath(prev, { c: s.c, r: s.r }, false);
-    out.push(p ? p.tiles * TILE : 300);
-    prev = { c: s.c, r: s.r };
-  }
-  return out;
+  return STOP_DEFS.map((s, i) => {
+    const p = legPath(STOP_DEFS[i - 1], s);
+    return p ? p.tiles * TILE : 300;
+  });
 }
 
 /** 各区間で線路（踏切）を渡るか。渡る区間は電車待ちの分だけ時刻表に余裕を持たせる */
 export function legCrossesRail() {
-  const out = [];
-  let prev = { c: START.c, r: START.r };
-  for (const s of STOP_DEFS) {
-    const p = shortestPath(prev, { c: s.c, r: s.r }, false);
-    out.push(!!p && p.path.some((t) => RAIL.rows.includes(t.r)));
-    prev = { c: s.c, r: s.r };
-  }
-  return out;
+  return STOP_DEFS.map((s, i) => {
+    const p = legPath(STOP_DEFS[i - 1], s);
+    return !!p && p.path.some((t) => RAIL.rows.includes(t.r));
+  });
 }
 
 export function createStops() {
+  // 区間ごとの所要時間（距離 ÷ 想定速度 ＋ 曲がり角 ＋ 踏切待ち）を距離に換算して時刻表を作る
   const cross = legCrossesRail();
-  const sched = buildSchedule(legDistances().map((d, i) => d + (cross[i] ? RULES.crossingSlackSec * RULES.scheduleSpeed : 0)));
+  const eq = STOP_DEFS.map((s, i) => (legTime(legPath(STOP_DEFS[i - 1], s)) + (cross[i] ? RULES.crossingSlackSec : 0)) * RULES.scheduleSpeed);
+  const sched = buildSchedule(eq);
   return STOP_DEFS.map((def, i) => ({
     index: i,
     ...def,

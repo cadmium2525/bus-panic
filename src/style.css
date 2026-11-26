@@ -261,8 +261,15 @@ button {
   border: 1px solid rgba(255, 255, 255, 0.2);
   white-space: nowrap;
 }
-#hud.has-mode #toasts {
+#hud.has-mode #toasts,
+#hud.has-mode .pita-guide {
   margin-top: 22px;
+}
+#hud.guide-on #toasts {
+  margin-top: 46px;
+}
+#hud.has-mode.guide-on #toasts {
+  margin-top: 68px;
 }
 .mode-chip.daily {
   color: #9fe3ff;
@@ -432,6 +439,62 @@ button {
   opacity: 0.85;
 }
 
+.pita-guide {
+  position: absolute;
+  left: 50%;
+  top: calc(78px + var(--sat));
+  transform: translateX(-50%);
+  width: min(300px, 46vw);
+  text-align: center;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.7);
+}
+.pg-label {
+  font-weight: 900;
+  font-size: 15px;
+  margin-bottom: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.pita-guide.near .pg-label {
+  color: #7dffa8;
+}
+.pita-guide.over .pg-label {
+  color: #ffb0a8;
+}
+.pg-track {
+  position: relative;
+  height: 12px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  overflow: hidden;
+}
+/* 目標は 80% の位置。表示範囲は −20m〜+5m（1m = 4%） */
+.pg-great {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(80% - 6%);
+  width: 12%;
+  background: rgba(255, 210, 63, 0.45);
+}
+.pg-perfect {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(80% - 2.4%);
+  width: 4.8%;
+  background: #7dffa8;
+}
+.pg-bus {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 4px;
+  margin-left: -2px;
+  left: 0;
+  background: #fff;
+  box-shadow: 0 0 6px #fff;
+}
 .dwell {
   position: absolute;
   left: 50%;
@@ -524,6 +587,10 @@ button {
 .float.fare {
   color: #ffe066;
   font-size: 15px;
+}
+.float.miss {
+  color: #d6dde6;
+  font-size: 16px;
 }
 .float.splash {
   color: #7dd3fc;
@@ -756,6 +823,10 @@ button {
 .btn:active {
   transform: translateY(1px);
 }
+.btn.x-post {
+  background: #000;
+  border-color: rgba(255, 255, 255, 0.5);
+}
 .btn.primary {
   background: linear-gradient(180deg, #2bb066, var(--green));
   border-color: #48d488;
@@ -841,6 +912,15 @@ button {
   overflow: auto;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
+}
+/* 結果画面のボタンは常に見えるように下に固定 */
+.card.result .row-menu {
+  position: sticky;
+  bottom: -16px;
+  margin: 10px -22px -16px;
+  padding: 10px 12px 12px;
+  background: linear-gradient(180deg, rgba(14, 20, 28, 0.85), rgba(14, 20, 28, 0.99) 25%);
+  border-radius: 0 0 18px 18px;
 }
 .card h2 {
   margin: 4px 0 10px;
@@ -1093,8 +1173,9 @@ kbd {
     transform: rotate(-90deg);
   }
 }
+/* 縦持ちの案内は運転中だけ（タイトルや結果は縦でも見られる） */
 @media (orientation: portrait) and (pointer: coarse) {
-  .rotate {
+  body.in-game .rotate {
     display: flex;
   }
 }
@@ -1159,6 +1240,29 @@ kbd {
   .mode-chip {
     font-size: 10px;
     margin-top: 2px;
+  }
+  .pita-guide {
+    top: calc(56px + var(--sat));
+    width: min(170px, 26vw);
+  }
+  .pg-label {
+    font-size: 12px;
+    margin-bottom: 2px;
+    white-space: nowrap;
+  }
+  .pg-track {
+    height: 9px;
+  }
+  .card.result .row-menu {
+    flex-wrap: nowrap;
+    gap: 6px;
+    padding: 8px 10px 10px;
+  }
+  .card.result .row-menu .btn {
+    min-height: 38px;
+    padding: 6px 10px;
+    font-size: 13.5px;
+    white-space: nowrap;
   }
   .clock {
     font-size: 20px;

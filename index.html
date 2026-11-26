@@ -9,6 +9,20 @@
     <meta name="format-detection" content="telephone=no" />
     <meta name="description" content="限界バス運行！ 〜遅延上等、罰金覚悟の路線バス〜 ブラウザで遊べる3Dバス運転スコアアタック" />
     <title>限界バス運行！</title>
+    <!-- X などで URL を貼ったときのカード表示 -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="限界バス運行！" />
+    <meta property="og:title" content="限界バス運行！〜遅延上等、罰金覚悟の路線バス〜" />
+    <meta property="og:description" content="急げば儲かる、暴れれば赤字。時刻表どおりに走るか、街を壊して近道するか。ブラウザですぐ遊べる3Dバス運転バカゲー（スマホ・PC／無料）" />
+    <meta property="og:url" content="https://cadmium2525.github.io/bus-panic/" />
+    <meta property="og:image" content="https://cadmium2525.github.io/bus-panic/og.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="ja_JP" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="限界バス運行！〜遅延上等、罰金覚悟の路線バス〜" />
+    <meta name="twitter:description" content="急げば儲かる、暴れれば赤字。ブラウザですぐ遊べる3Dバス運転バカゲー" />
+    <meta name="twitter:image" content="https://cadmium2525.github.io/bus-panic/og.jpg" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./src/style.css" />
   </head>
@@ -44,7 +58,7 @@
           <button class="icon-btn" id="btn-pause" aria-label="ポーズ">⏸<small>停止</small></button>
         </div>
         <div class="panel money">
-          <div><span>運賃</span><b id="hud-fare">¥0</b></div>
+          <div><span>収入</span><b id="hud-fare">¥0</b></div>
           <div class="fine"><span>罰金</span><b id="hud-fine">¥0</b></div>
           <div class="sum"><span>見込み</span><b id="hud-total">¥0</b></div>
         </div>
@@ -57,6 +71,10 @@
         <div class="speed"><b id="hud-speed">0</b><span>km/h</span></div>
         <div class="speed-bar"><i id="hud-speed-bar"></i></div>
         <div class="onboard" id="hud-onboard">乗車 0/60</div>
+      </div>
+      <div id="pita-guide" class="pita-guide hidden">
+        <div class="pg-label" id="pg-label"></div>
+        <div class="pg-track"><i class="pg-great"></i><i class="pg-perfect"></i><i class="pg-bus" id="pg-bus"></i></div>
       </div>
       <div id="dwell" class="dwell hidden"><div class="dwell-label" id="dwell-label">乗降中…</div><div class="dwell-track"><i id="dwell-bar"></i></div></div>
       <canvas id="speedlines"></canvas>
@@ -108,15 +126,15 @@
         <h2>遊び方</h2>
         <ol class="rules">
           <li><b>15か所のバス停</b>を順番に回り、終点の<b>限界駅</b>を目指します。</li>
-          <li>緑に光る<b>停留所の枠内で停車</b>（5km/h以下）すると乗降開始。1人乗るごとに<b>運賃¥250</b>。</li>
+          <li>緑に光る<b>停留所の枠内で止まる</b>と乗降開始。1人乗るごとに<b>運賃¥250</b>。</li>
           <li>定刻を過ぎると<b>10秒ごとに待ち客が1人</b>帰ってしまいます。定刻までに着けば<b>定時ボーナス</b>。</li>
           <li>コーン・植木鉢・標識・看板・ガードレール・他の車にぶつけると<b>罰金</b>（同じ物は1回だけ）。</li>
           <li>路地は近道。でも障害物だらけ。<b>安全な大通りか、危険な近道か</b>は自分次第。</li>
           <li>制限時間内に終点へ。終点に早めに入って3秒停車すると、残りの停留所を通過して運行終了できます。</li>
           <li>ブレーキは長く踏むほど強くなります。高速から思いきり踏むと<b>急ブレーキ</b>で乗客に怒られます。</li>
-          <li><b>ピタ止め</b>：中扉が標柱の横に来るよう、白い枠にぴったり止めるとボーナス。<b>定時コンボ</b>が続くほど定時ボーナスが増えます。</li>
+          <li><b>ピタ止め</b>：光の柱の真下（白い枠）にぴったり止めるとボーナス。近づくと画面下に「ピタ止めまで ○m」のガイドが出ます。<b>定時コンボ</b>が続くほど定時ボーナスが増えます（定刻から 5 秒以内なら定時）。</li>
           <li><b>ハプニング</b>：工事の通行止め（地図の ✕）、時間内に送り届けるとチップをくれる<b>急ぎの客</b>、客を横取りに来る<b>ライバルのバス</b>、カンカン鳴る<b>踏切</b>（突破すると ¥2,000）。</li>
-          <li><b>日替わりチャレンジ</b>は毎日条件が変わり、全員同じ条件で遊べます。<b>暴走モード</b>は 2 分間、壊せば壊すほど高得点（連続で壊すと倍率アップ）。</li>
+          <li><b>日替わりチャレンジ</b>は毎日条件が変わり、全員同じ条件で遊べます。<b>暴走モード</b>は 2 分間、壊せば壊すほど高得点（違う種類の物を続けて壊すと倍率アップ）。</li>
           <li>自己ベストの走りは<b>ゴースト</b>として次の運行に現れます。<b>実績</b>は 22 種類。</li>
         </ol>
         <table class="price">
@@ -126,7 +144,7 @@
           <tr><th>他車への衝突</th><td>−¥3,000</td></tr>
           <tr><th>激突で乗客転倒</th><td>−¥500</td></tr>
           <tr><th>路面へ復帰（R）</th><td>−¥1,000</td></tr>
-          <tr><th>急ブレーキ（時速45km以上で強く）</th><td>−¥300</td></tr>
+          <tr><th>急ブレーキ（時速50km以上で強く踏み続ける。最初の2回は注意だけ）</th><td>−¥300</td></tr>
         </table>
         <h3>操作</h3>
         <div class="controls-grid">
@@ -220,6 +238,7 @@
         </details>
         <div class="menu row-menu">
           <button class="btn primary" id="btn-retry">もう一度運行する</button>
+          <button class="btn x-post" id="btn-post-x">𝕏 に投稿</button>
           <button class="btn" id="btn-share">結果を画像でシェア</button>
           <button class="btn" id="btn-title">タイトルへ</button>
         </div>

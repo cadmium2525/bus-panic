@@ -62,7 +62,7 @@ export function achievementsForResult(r) {
   if (r.mode === 'rampage') return r.total >= 100000 ? ['rampage'] : [];
   if (clear) out.push('first');
   if (clear && r.allStopsBonus > 0) out.push('allstops');
-  if (clear && r.stops.every((s) => s.status === 'done' && s.delay != null && s.delay <= 0)) out.push('ontime');
+  if (clear && r.stops.every((s) => s.status === 'done' && s.onTime)) out.push('ontime');
   if (clear && r.damage + r.other === 0) out.push('clean');
   if (r.rank === 'S' || r.rank === 'A') out.push('rankA');
   if (r.rank === 'S') out.push('rankS');

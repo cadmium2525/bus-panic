@@ -175,3 +175,93 @@ export function shortestPath(from, to, allowAlley = true, blocked = null) {
   path.reverse();
   return { tiles: dist[goal], path };
 }
+
+/**
+ * 向きを考えた経路探索（タイル × 向き の Dijkstra）。
+ * - その場での U ターン（真後ろへの移動）はしない
+ * - 曲がるたびに turnCost タイル分のコストを足す（遠回りでも曲がりの少ない道を選ぶ）
+ * startDir: いまの進行方向 [dc, dr]（null なら自由）、endDir: ゴールのタイルに入るときの向き（null なら自由）
+ * 戻り値: { tiles: 移動したタイル数, turns: 曲がった回数, path: [{c, r}, ...] } または null
+ */
+export function drivePath(from, to, { allowAlley = false, blocked = null, startDir = null, endDir = null, turnCost = 1.5 } = {}) {
+  const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+  const dirIndex = (d) => (d ? DIRS.findIndex(([a, b]) => a === d[0] && b === d[1]) : -1);
+  const ok0 = (t) => (allowAlley ? isDrivableType(t) : isMainType(t));
+  const S = N * N * 4;
+  const cost = new Float64Array(S).fill(Infinity);
+  const prev = new Int32Array(S).fill(-1);
+  const start = from.r * N + from.c;
+  const goal = to.r * N + to.c;
+  const sd = dirIndex(startDir);
+  const ed = dirIndex(endDir);
+  // 二分ヒープ（[cost, state]）
+  const heap = [];
+  const push = (c, s) => {
+    heap.push([c, s]);
+    let i = heap.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (heap[p][0] <= heap[i][0]) break;
+      [heap[p], heap[i]] = [heap[i], heap[p]];
+      i = p;
+    }
+  };
+  const pop = () => {
+    const top = heap[0];
+    const last = heap.pop();
+    if (heap.length) {
+      heap[0] = last;
+      let i = 0;
+      for (;;) {
+        const l = i * 2 + 1, r = l + 1;
+        let m = i;
+        if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+        if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+        if (m === i) break;
+        [heap[m], heap[i]] = [heap[i], heap[m]];
+        i = m;
+      }
+    }
+    return top;
+  };
+  // 出発: 向きが決まっていればその向き、なければ 4 方向どれでも
+  for (let d = 0; d < 4; d++) {
+    if (sd >= 0 && d !== sd) continue;
+    const s = start * 4 + d;
+    cost[s] = 0;
+    push(0, s);
+  }
+  let found = -1;
+  while (heap.length) {
+    const [c0, s] = pop();
+    if (c0 > cost[s]) continue;
+    const tile = s >> 2, d = s & 3;
+    if (tile === goal && tile !== start && (ed < 0 || d === ed)) {
+      found = s;
+      break;
+    }
+    const tc = tile % N, tr = (tile / N) | 0;
+    for (let nd = 0; nd < 4; nd++) {
+      if (((nd + 2) & 3) === d) continue; // 真後ろには行かない
+      const nc = tc + DIRS[nd][0], nr = tr + DIRS[nd][1];
+      if (nc < 0 || nr < 0 || nc >= N || nr >= N) continue;
+      const ni = nr * N + nc;
+      if (!ok0(grid[ni]) || (blocked && blocked.has(ni) && ni !== goal)) continue;
+      const nc0 = c0 + 1 + (nd !== d ? turnCost : 0);
+      const ns = ni * 4 + nd;
+      if (nc0 < cost[ns]) {
+        cost[ns] = nc0;
+        prev[ns] = s;
+        push(nc0, ns);
+      }
+    }
+  }
+  if (found < 0) return null;
+  const states = [];
+  for (let s = found; s !== -1; s = prev[s]) states.push(s);
+  states.reverse();
+  const path = states.map((s) => ({ c: (s >> 2) % N, r: ((s >> 2) / N) | 0 }));
+  let turns = 0;
+  for (let i = 1; i < states.length; i++) if ((states[i] & 3) !== (states[i - 1] & 3)) turns++;
+  return { tiles: path.length - 1, turns, path };
+}

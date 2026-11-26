@@ -1,26 +1,66 @@
 // シェア用のリザルト画像（1200×630）を作って、共有シートまたはダウンロードで渡す
 import { formatYen } from '../game/rules.js';
+import { SITE_URL } from '../config.js';
+
+/** シェア文に入れる URL（公開ページで遊んでいればそのページ、ローカルなら公開先） */
+export function gameUrl() {
+  const h = location.hostname;
+  if (location.protocol.startsWith('http') && h && h !== 'localhost' && h !== '127.0.0.1') return location.origin + location.pathname;
+  return SITE_URL;
+}
+
+/** 停留所ごとの結果を絵文字で（🟩 定時・🟨 遅延・⬛ 通過/未到着） */
+export function stopsEmoji(r) {
+  return r.stops.map((s) => (s.terminal ? (s.status === 'done' ? '🏁' : '⬛') : s.status !== 'done' ? '⬛' : s.onTime ? '🟩' : '🟨')).join('');
+}
+
+/** シェア用の文章（X の文字数に収まる長さ） */
+export function shareText(r) {
+  if (r.mode === 'rampage') {
+    return `限界バス運行！ 暴走モードで街を破壊😈\n破壊点 ${r.total.toLocaleString('ja-JP')}（ランク${r.rank}・${r.rampage.destroyed}個破壊・最大${r.rampage.maxChain}コンボ）\n#限界バス運行`;
+  }
+  const head = r.daily ? `限界バス運行！ 日替わり${r.daily.key.slice(5).replace('-', '/')}（${r.daily.picks.map((p) => p.name).join('＋')}）` : '限界バス運行！';
+  const fine = r.damage + r.other;
+  return `${head}\nランク${r.rank}・${r.total.toLocaleString('ja-JP')}点　罰金${formatYen(fine)}\n${stopsEmoji(r)}\n最大${r.maxCombo}コンボ・ピタッ！${r.pita.perfect}回\n#限界バス運行`;
+}
+
+/** X の投稿画面を開く（文章と URL を入れた状態で） */
+export function postToX(r) {
+  const u = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText(r))}&url=${encodeURIComponent(gameUrl())}`;
+  window.open(u, '_blank', 'noopener');
+}
 
 const JP = '"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic","Meiryo",sans-serif';
 
-export function resultImage(r) {
+export function resultImage(r, shot = null) {
   const W = 1200, H = 630;
   const c = document.createElement('canvas');
   c.width = W;
   c.height = H;
   const g = c.getContext('2d');
-  // 背景
-  const bg = g.createLinearGradient(0, 0, W, H);
-  bg.addColorStop(0, '#0f2a1d');
-  bg.addColorStop(1, '#101722');
-  g.fillStyle = bg;
-  g.fillRect(0, 0, W, H);
-  // 道路とバス停のイラスト風の帯
-  g.fillStyle = '#2b2f36';
-  g.fillRect(0, H - 120, W, 120);
-  g.fillStyle = '#f0c330';
-  for (let x = 20; x < W; x += 90) g.fillRect(x, H - 64, 50, 8);
-  drawBus(g, 860, H - 205, 1.25);
+  if (shot) {
+    // ゲーム画面を背景に、左側を暗くして文字を読みやすく
+    g.drawImage(shot, 0, 0, W, H);
+    const sh = g.createLinearGradient(0, 0, W, 0);
+    sh.addColorStop(0, 'rgba(8,12,18,0.92)');
+    sh.addColorStop(0.55, 'rgba(8,12,18,0.78)');
+    sh.addColorStop(1, 'rgba(8,12,18,0.15)');
+    g.fillStyle = sh;
+    g.fillRect(0, 0, W, H);
+  } else {
+    // 背景
+    const bg = g.createLinearGradient(0, 0, W, H);
+    bg.addColorStop(0, '#0f2a1d');
+    bg.addColorStop(1, '#101722');
+    g.fillStyle = bg;
+    g.fillRect(0, 0, W, H);
+    // 道路とバス停のイラスト風の帯
+    g.fillStyle = '#2b2f36';
+    g.fillRect(0, H - 120, W, 120);
+    g.fillStyle = '#f0c330';
+    for (let x = 20; x < W; x += 90) g.fillRect(x, H - 64, 50, 8);
+    drawBus(g, 860, H - 205, 1.25);
+  }
 
   g.textBaseline = 'alphabetic';
   g.fillStyle = '#ffd23f';
@@ -58,7 +98,7 @@ export function resultImage(r) {
   g.fillText(`${r.total.toLocaleString('ja-JP')}点`, 276, 362);
   g.fillStyle = '#ffffff';
   g.font = `700 24px ${JP}`;
-  const onTime = r.stops.filter((s) => s.delay != null && s.delay <= 0).length;
+  const onTime = r.stops.filter((s) => s.onTime).length;
   const hits = r.counts.cone + r.counts.sign + r.counts.guardrail + r.counts.car;
   const lines = r.mode === 'rampage'
     ? [`壊した数 ${r.rampage.destroyed}個　最大 ${r.rampage.maxChain} コンボ`, `最高速度 ${r.maxSpeedKmh}km/h`]
@@ -67,9 +107,17 @@ export function resultImage(r) {
         `ピタッ！ ${r.pita.perfect}回　罰金 ${formatYen(-(r.damage + r.other))}　ぶつけた物 ${hits}個`,
       ];
   lines.forEach((t, i) => g.fillText(t, 280, 404 + i * 34));
-  g.fillStyle = 'rgba(255,255,255,0.55)';
-  g.font = `500 18px ${JP}`;
-  g.fillText('#限界バス運行', 62, H - 140);
+  // ランクのひとこと
+  g.fillStyle = '#ffd9a0';
+  g.font = `800 26px ${JP}`;
+  g.fillText(`「${r.comment}」`, 62, 534);
+  if (r.mode !== 'rampage') {
+    g.font = `400 26px ${JP}`;
+    g.fillText(stopsEmoji(r), 62, 484);
+  }
+  g.fillStyle = 'rgba(255,255,255,0.7)';
+  g.font = `600 20px ${JP}`;
+  g.fillText(`#限界バス運行　${gameUrl().replace(/^https?:\/\//, '')}`, 62, H - 40);
   return c;
 }
 
@@ -120,13 +168,12 @@ function drawBus(g, x, y, s) {
 }
 
 /** 共有シート（対応端末）またはダウンロード */
-export async function shareResult(r) {
-  const canvas = resultImage(r);
+export async function shareResult(r, shot = null) {
+  const canvas = resultImage(r, shot);
   const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
   if (!blob) return 'error';
   const file = new File([blob], 'genkai-bus-result.png', { type: 'image/png' });
-  const mode = r.mode === 'rampage' ? '暴走モード ' : r.daily ? `日替わり${r.daily.key.slice(5).replace('-', '/')} ` : '';
-  const text = `限界バス運行！ ${mode}ランク${r.rank}・${r.total.toLocaleString('ja-JP')}点 #限界バス運行`;
+  const text = `${shareText(r)}\n${gameUrl()}`;
   try {
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       await navigator.share({ files: [file], text });

@@ -42,6 +42,7 @@ export class Hud {
     this.el.next = $('hud-next');
     this.el.rp = { panel: $('hud-rampage'), points: $('hud-rp-points'), chain: $('hud-rp-chain'), count: $('hud-rp-count'), meter: $('hud-rp-meter') };
     this.el.moneyLabel = document.querySelector('#hud .money div:first-child span');
+    this.el.pg = { root: $('pita-guide'), label: $('pg-label'), bus: $('pg-bus') };
     this.el.bubbles = $('bubbles');
     this.el.hint = $('hint');
     this.el.hintText = $('hint-text');
@@ -118,6 +119,7 @@ export class Hud {
 
   show(on) {
     this.el.root.classList.toggle('hidden', !on);
+    document.body.classList.toggle('in-game', on);
   }
 
   /** 遊んでいるモードの表示（日替わりの条件・暴走モードの得点パネル） */
@@ -133,7 +135,7 @@ export class Hud {
     e.mode.textContent = chip;
     e.mode.className = `mode-chip ${mode}` + (chip ? '' : ' hidden');
     e.root.classList.toggle('has-mode', !!chip);
-    e.moneyLabel.textContent = mode === 'rampage' ? '破壊点' : '運賃';
+    e.moneyLabel.textContent = mode === 'rampage' ? '破壊点' : '収入';
     e.missions.textContent = '';
   }
 
@@ -150,6 +152,38 @@ export class Hud {
       d.textContent = m.text;
       e.appendChild(d);
     }
+  }
+
+  /** ピタ止めのガイド。ahead: 目標までの残り（負 = 手前、正 = 行き過ぎ）、null で非表示 */
+  pitaGuide(ahead, farFromCurb = false) {
+    const g = this.el.pg;
+    if (ahead == null) {
+      if (!this._last.pgHidden) {
+        g.root.classList.add('hidden');
+        this.el.root.classList.remove('guide-on');
+        this._last.pgHidden = true;
+      }
+      return;
+    }
+    if (this._last.pgHidden !== false) {
+      this.el.root.classList.add('guide-on');
+      g.root.classList.remove('hidden');
+      this._last.pgCls = null;
+    }
+    this._last.pgHidden = false;
+    const near = Math.abs(ahead) <= 0.6;
+    const over = ahead > 0.6;
+    let text = near ? 'ここで止まる！' : over ? `${ahead.toFixed(1)}m 行き過ぎ` : `ピタ止めまで ${(-ahead).toFixed(1)}m`;
+    if (farFromCurb) text += ' ←寄せて';
+    this._set('pgLabel', g.label, text);
+    const cls = 'pita-guide' + (near ? ' near' : over ? ' over' : '');
+    // className を書き換えると hidden も外れる
+    if (this._last.pgCls !== cls) {
+      this._last.pgCls = cls;
+      g.root.className = cls;
+    }
+    const x = Math.max(0, Math.min(100, 80 + ahead * 4));
+    g.bus.style.left = `${x.toFixed(1)}%`;
   }
 
   /** 暴走モードの得点パネル */
@@ -189,7 +223,16 @@ export class Hud {
     this._set('sched', e.sched, `定刻 ${formatClock(s.nextSched)}`);
     const diff = Math.round(s.timeToSched);
     let st, cls;
-    if (diff >= 0) {
+    if (s.arrivedDelay != null) {
+      // 到着済み（乗降中）：到着時点の結果で固定
+      const d = Math.round(s.arrivedDelay);
+      st = s.arrivedOnTime ? '到着 定時' : `到着 +${Math.floor(d / 60)}:${String(d % 60).padStart(2, '0')}`;
+      cls = s.arrivedOnTime ? 'ok' : 'late';
+    } else if (diff < 0 && -diff <= (s.grace || 0)) {
+      // 定刻は過ぎたが、まだ定時扱い（猶予）
+      st = `猶予 あと${s.grace + diff}秒`;
+      cls = 'warn';
+    } else if (diff >= 0) {
       st = `あと ${Math.floor(diff / 60)}:${String(diff % 60).padStart(2, '0')}`;
       cls = diff <= 10 ? 'warn' : 'ok';
     } else {

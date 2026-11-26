@@ -3,7 +3,7 @@ import { formatClock, formatYen } from '../game/rules.js';
 import { PENALTY } from '../config.js';
 import { loadBest, submitBest, saveSettings } from '../core/storage.js';
 import { ACHIEVEMENTS, loadAchievements } from '../game/achievements.js';
-import { shareResult } from './share.js';
+import { shareResult, postToX } from './share.js';
 import { dailyChallenge } from '../game/modes.js';
 
 const $ = (id) => document.getElementById(id);
@@ -58,9 +58,10 @@ export class Screens {
       this.game.hints.reset();
       $('btn-hints-reset').textContent = 'ヒントを最初から表示します';
     });
+    this._click('btn-post-x', () => this.lastResult && postToX(this.lastResult));
     this._click('btn-share', async () => {
       if (!this.lastResult) return;
-      const r = await shareResult(this.lastResult);
+      const r = await shareResult(this.lastResult, this.game && this.game.snapshot());
       if (r === 'downloaded') $('btn-share').textContent = '画像を保存しました';
       this.audio.play('shutter', { volume: 0.6 });
     });
@@ -320,8 +321,9 @@ export class Screens {
     let html = '<tr><th>#</th><th>停留所</th><th>定刻</th><th>到着</th><th>遅延</th><th>停車</th><th>乗車</th></tr>';
     r.stops.forEach((s, i) => {
       const skipped = s.status !== 'done';
-      const delay = s.delay == null ? '—' : s.delay <= 0 ? `定時(${Math.round(s.delay)}秒)` : `+${Math.round(s.delay)}秒`;
-      const cls = s.delay == null ? '' : s.delay <= 0 ? 'ok' : 'late';
+      const d = s.delay == null ? null : Math.round(s.delay);
+      const delay = d == null ? '—' : s.onTime ? `定時(${d > 0 ? '+' : ''}${d}秒)` : `+${d}秒`;
+      const cls = d == null ? '' : s.onTime ? 'ok' : 'late';
       const extra = [s.lost ? `${s.lost}人帰宅` : '', s.stolen ? `${s.stolen}人横取り` : ''].filter(Boolean).join('・');
       const board = s.terminal ? '降車' : skipped ? (s.status === 'skipped' ? '通過' : '未到着') : `${s.board}人${extra ? `（${extra}）` : ''}`;
       const pita = s.pita ? PITA[s.pita] : '—';

@@ -9,7 +9,7 @@ import { Props } from '../entities/props.js';
 import { Bus } from '../entities/bus.js';
 import { Traffic } from '../entities/traffic.js';
 import { Passengers } from '../entities/passengers.js';
-import { createStops, inZone, START, stopError } from './stops.js';
+import { createStops, inZone, START, stopError, approachPath, legPath, legTime, headingDir } from './stops.js';
 import { remainingPassengers, resolveStop, dwellTime, computeScore, rankFor, PenaltyLedger, formatClock, comboBonus, pitaGrade, rampageMultiplier } from './rules.js';
 import { Railway } from '../entities/railway.js';
 import { planClosures, planHurry, planRivals, Rival, spotBehind } from './happenings.js';
@@ -151,6 +151,24 @@ export class Game {
         return this.captureFrame;
       };
     } else requestAnimationFrame(this._loop);
+  }
+
+  /** いまのゲーム画面を 1200×630 に切り抜いた canvas（シェア画像の背景用） */
+  snapshot() {
+    try {
+      this.renderer.render(this.scene, this.camera);
+      const src = this.renderer.domElement;
+      const W = 1200, H = 630;
+      const c = document.createElement('canvas');
+      c.width = W;
+      c.height = H;
+      const k = Math.max(W / src.width, H / src.height);
+      const w = W / k, h = H / k;
+      c.getContext('2d').drawImage(src, (src.width - w) / 2, (src.height - h) / 2, w, h, 0, 0, W, H);
+      return c;
+    } catch (_) {
+      return null;
+    }
   }
 
   // ---------------- 設定 ----------------
@@ -299,8 +317,10 @@ export class Game {
     const zn = stop.zone;
     m.zone.scale.set(zn.hx * 2 - 0.6, 0.6, zn.hz * 2 - 0.6);
     m.zone.position.set(zn.cx, 0.3, zn.cz);
-    m.beam.position.set(zn.cx, 30, zn.cz);
-    m.arrow.position.set(zn.cx, 6.5, zn.cz);
+    // 光の柱と矢印はピタ止めの位置（バスの中心をここに）
+    const tg = stop.target || { x: zn.cx, z: zn.cz };
+    m.beam.position.set(tg.x, 30, tg.z);
+    m.arrow.position.set(tg.x, 6.5, tg.z);
     if (m.label.material.map) m.label.material.map.dispose();
     m.label.material.map = labelTexture([stop.terminal ? '終点' : `次は ${stop.index + 1}番`, stop.name]);
     m.label.material.needsUpdate = true;
@@ -385,7 +405,7 @@ export class Game {
       closures,
       blocked: new Set(closures.flatMap((c) => c.seg.tiles)),
       crossingFines: 0,
-      rampage: rampage ? { points: 0, chain: 0, lastHitT: -99, maxChain: 0, destroyed: 0 } : null,
+      rampage: rampage ? { points: 0, chain: 0, lastHitT: -99, maxChain: 0, destroyed: 0, lastKind: '' } : null,
       ledger: new PenaltyLedger(),
       limit: rampage ? RAMPAGE.seconds : lastStop.scheduled + RULES.timeLimitMarginSec,
       impactCd: 0,
@@ -397,6 +417,9 @@ export class Game {
       resets: 0,
       maxSpeed: 0,
       brakeCd: 0,
+      hardBrakeT: 0,
+      brakeWarned: 0,
+      stillT: 0,
       voiceCd: 0,
       fastCd: 0,
       chimed: new Set(),
@@ -444,26 +467,25 @@ export class Game {
       if (closures.length) info.push(`工事で通行止め ${closures.length} か所（地図の ✕）${detour > 0 ? `・時刻表を ${detour} 秒延長` : ''}`);
       if (this.run.hurry.length) info.push(`急ぎの客 ${this.run.hurry.length} 人`);
       if (this.run.rivalAt.length) info.push('ライバル会社が出没中');
-      setTimeout(() => info.forEach((t, k) => setTimeout(() => this.run && this.hud.toast(t, 'info'), k * 700)), 3600);
+      // 発車直後は画面がにぎやかなので、最初の停留所で止まっている間に知らせる
+      this.run.infoQueue = info;
     }
     this._camSnap = true;
   }
 
   /** 通行止めで遠回りになる区間は、その分だけ時刻表を後ろにずらす（戻り値：延長した秒数） */
   _applySchedule(blocked) {
-    let prev = { c: START.c, r: START.r };
     let add = 0;
-    for (const s of this.stops) {
+    this.stops.forEach((s, i) => {
       if (s.baseScheduled == null) s.baseScheduled = s.scheduled;
       if (blocked.size) {
-        const to = { c: s.c, r: s.r };
-        const a = shortestPath(prev, to, false);
-        const b = shortestPath(prev, to, false, blocked) || shortestPath(prev, to, true, blocked);
-        if (a && b) add += (Math.max(0, b.tiles - a.tiles) * TILE) / RULES.scheduleSpeed;
+        const ps = this.stops[i - 1];
+        const a = legPath(ps, s);
+        const b = legPath(ps, s, blocked) || legPath(ps, s, blocked, true);
+        if (a && b) add += Math.max(0, legTime(b) - legTime(a));
       }
       s.scheduled = s.baseScheduled + Math.round(add / 5) * 5;
-      prev = { c: s.c, r: s.r };
-    }
+    });
     return Math.round(add / 5) * 5;
   }
 
@@ -540,6 +562,7 @@ export class Game {
     this.audio.stopBgm(0.3);
     this.ghost.setData(null);
     this.hud.dwell(null);
+    this.hud.pitaGuide(null);
     this.hud.speedLines(0);
     const allStops = reason === 'clear' && run.stops.every((s) => s.status === 'done');
     const ledger = run.ledger;
@@ -568,6 +591,7 @@ export class Game {
         scheduled: RULES.startClockSec + s.scheduled,
         arrival: run.stops[i].arrival != null ? RULES.startClockSec + run.stops[i].arrival : null,
         delay: run.stops[i].result ? run.stops[i].result.delay : null,
+        onTime: !!(run.stops[i].result && run.stops[i].result.onTime),
         board: run.stops[i].result ? run.stops[i].result.board : 0,
         lost: run.stops[i].result ? run.stops[i].result.lost : run.stops[i].base,
         stolen: run.stops[i].stolen,
@@ -629,7 +653,7 @@ export class Game {
     if (!run || this.state !== 'playing' || it.noCharge) return;
     const p = PENALTY[it.kind.cls];
     if (run.rampage) {
-      if (run.ledger.charge(it.id, it.kind.cls, p.amount, it.kind.label, run.t)) this._rampageHit(p.amount, it.kind.label, it.x, it.z);
+      if (run.ledger.charge(it.id, it.kind.cls, p.amount, it.kind.label, run.t)) this._rampageHit(RAMPAGE.points[it.kind.cls] ?? p.amount, it.kind.label, it.x, it.z, it.kind.cls);
       return;
     }
     const amount = p.amount * run.mods.fineMult;
@@ -661,7 +685,7 @@ export class Game {
     car.gen = (car.gen || 0) + 1;
     const id = `${car.id}#${car.gen}`;
     if (run.rampage) {
-      if (run.ledger.charge(id, 'car', PENALTY.car.amount, PENALTY.car.label, run.t)) this._rampageHit(PENALTY.car.amount, '他車', car.x, car.z);
+      if (run.ledger.charge(id, 'car', PENALTY.car.amount, PENALTY.car.label, run.t)) this._rampageHit(RAMPAGE.points.car, '他車', car.x, car.z, 'car');
       return;
     }
     const amount = PENALTY.car.amount * run.mods.fineMult;
@@ -841,7 +865,7 @@ export class Game {
         if (n > 0) {
           this.hud.big(String(n), '発車準備', 0.9, 'count');
         } else {
-          if (run.rampage) this.hud.big('暴走開始！', '壊すほど高得点。連続で壊すと倍率アップ', 1.6, 'go');
+          if (run.rampage) this.hud.big('暴走開始！', '違う物を続けて壊すと倍率アップ', 1.6, 'go');
           else this.hud.big('発車オーライ！', `${run.next + 1}番 ${this.stops[run.next].name} へ`, 1.4, 'go');
           this.audio.play('go', { volume: 0.8 });
           this.audio.playBgm('drive', { fade: 1.2 });
@@ -878,10 +902,17 @@ export class Game {
 
     // 急ブレーキ（強く長く踏んだまま高速から減速）
     run.brakeCd -= dt;
-    if (bus.decel > RULES.suddenBrakeDecel && bus.speed * 3.6 > RULES.suddenBrakeKmh && run.onboard > 0 && run.brakeCd <= 0) {
+    if (bus.decel > RULES.suddenBrakeDecel && bus.speed * 3.6 > RULES.suddenBrakeKmh && run.onboard > 0) run.hardBrakeT += dt;
+    else run.hardBrakeT = 0;
+    if (run.hardBrakeT > RULES.suddenBrakeSec && run.brakeCd <= 0) {
       run.brakeCd = 4;
-      run.ledger.chargeEvent('brake', RULES.suddenBrakePenalty, '急ブレーキ', run.t);
-      this.hud.toast(`急ブレーキ！ 乗客がよろけた −¥${RULES.suddenBrakePenalty}`, 'bad');
+      if (run.brakeWarned < RULES.suddenBrakeFreeWarnings) {
+        run.brakeWarned++;
+        this.hud.toast('急ブレーキ注意！ 早めに軽く踏もう（次から −¥300）', 'warn');
+      } else {
+        run.ledger.chargeEvent('brake', RULES.suddenBrakePenalty, '急ブレーキ', run.t);
+        this.hud.toast(`急ブレーキ！ 乗客がよろけた −¥${RULES.suddenBrakePenalty}`, 'bad');
+      }
       this._voice('brake', 1, true);
       this._hint('brake');
     }
@@ -908,7 +939,7 @@ export class Game {
       this.effects.chips_(cr.x, 1, bus.z, 10, ['#ffd400', '#111111']);
       this.audio.play('sign', { volume: 0.9 });
       if (run.rampage) {
-        this._rampageHit(1500, '遮断機', cr.x, bus.z);
+        this._rampageHit(RAMPAGE.points.crossing, '遮断機', cr.x, bus.z, 'crossing');
       } else {
         const amt = RULES.crossingPenalty * run.mods.fineMult;
         run.ledger.chargeEvent('crossing', amt, '踏切無視', run.t);
@@ -930,7 +961,7 @@ export class Game {
     this.audio.play('car', { volume: 0.9 });
     this.effects.sparks_(this.bus.x, 1.5, this.bus.z, 30, { speed: 10 });
     this.slowmo = 0.4;
-    if (run.rampage) this._rampageHit(5000, '電車と接触', this.bus.x, this.bus.z);
+    if (run.rampage) this._rampageHit(RAMPAGE.points.train, '電車と接触', this.bus.x, this.bus.z, 'train');
     else {
       this.hud.toast('電車と接触！ 踏切では止まって！', 'bad');
       if (run.onboard > 0) {
@@ -1003,10 +1034,14 @@ export class Game {
   }
 
   // ---------------- 暴走モード ----------------
-  _rampageHit(points, label, x, z) {
+  _rampageHit(points, label, x, z, kind = '') {
     const rp = this.run.rampage;
     const t = this.run.t;
-    rp.chain = t - rp.lastHitT <= RAMPAGE.comboWindow ? rp.chain + 1 : 1;
+    // 違う種類のものを続けて壊すとコンボが伸びる（同じ種類ばかりだと伸びない）
+    const before = rp.chain;
+    if (t - rp.lastHitT > RAMPAGE.comboWindow) rp.chain = 1;
+    else if (kind !== rp.lastKind) rp.chain++;
+    rp.lastKind = kind;
     rp.lastHitT = t;
     rp.maxChain = Math.max(rp.maxChain, rp.chain);
     rp.destroyed++;
@@ -1014,7 +1049,7 @@ export class Game {
     const got = Math.round(points * mult);
     rp.points += got;
     this._floatWorld(x, 2, z, `+${got.toLocaleString()}${mult > 1 ? ` ×${mult}` : ''} ${label}`, 'fare');
-    if (rp.chain === 3 || rp.chain === 7 || rp.chain === 12) {
+    if (rp.chain !== before && (rp.chain === 3 || rp.chain === 7 || rp.chain === 12)) {
       this.hud.big(`${rp.chain} コンボ！`, `破壊点 ×${mult}`, 0.9, 'go');
       this.audio.play('combo', { volume: 0.7 });
     }
@@ -1028,7 +1063,9 @@ export class Game {
   _updateStops(dt) {
     const run = this.run;
     const bus = this.bus;
-    const slow = bus.speed * 3.6 <= RULES.stopSpeedKmh;
+    // ほぼ止まった状態が少し続いたら「停車」（ピタ止めは止まった位置で判定）
+    run.stillT = bus.speed * 3.6 <= RULES.stopSpeedKmh ? run.stillT + dt : 0;
+    const slow = run.stillT >= 0.15;
     const lastIdx = this.stops.length - 1;
 
     // 待機客の減少（未到着の停留所）
@@ -1148,6 +1185,7 @@ export class Game {
     run.pita[pg.grade]++;
     run.skill += pg.bonus;
     st.pita = pg.grade;
+    const advice = this._pitaAdvice(s, err, pg.grade);
     if (run.pita.perfect >= 6) this._unlock('pitamaster');
     if (i <= 1 && !s.terminal) setTimeout(() => this.run === run && this._hint('pita'), 1800);
     this.bus.setOnboard(run.onboard, RULES.capacity);
@@ -1162,9 +1200,9 @@ export class Game {
     }
     if (pg.grade !== 'miss') {
       this.audio.play(pg.grade === 'perfect' ? 'pita' : 'coin', { volume: pg.grade === 'perfect' ? 0.8 : 0.5, delay: 0.25 });
-      this._floatWorld(bus.x, 4.5, bus.z, `${pg.label} +¥${pg.bonus}`, pg.grade === 'perfect' ? 'pita' : 'fare');
+      this._floatWorld(bus.x, 4.5, bus.z, `${pg.label} +¥${pg.bonus}${advice ? `（${advice}）` : ''}`, pg.grade === 'perfect' ? 'pita' : 'fare');
       if (pg.grade === 'perfect') this.effects.confetti(bus.x, 6, bus.z, 18);
-    }
+    } else if (!s.terminal) this._floatWorld(bus.x, 4.5, bus.z, `停止位置ずれ（${advice}）`, 'miss');
     if (!res.onTime && prevCombo >= 2) this.hud.toast(`定時コンボが途切れた…（${prevCombo}連続）`, 'warn');
     // ライバルとの競争
     if (run.rivalTarget === i && this.rival.state === 'race') {
@@ -1218,7 +1256,12 @@ export class Game {
       for (let k = n; k < res.board; k++) setTimeout(() => this.run === run && st.status === 'serving' && this._boardOne(i), 300 + k * 150);
     }
 
-    const pitaText = pg.grade === 'miss' ? '' : `　${pg.label}`;
+    if (run.infoQueue && run.infoQueue.length) {
+      const q = run.infoQueue;
+      run.infoQueue = null;
+      q.forEach((t, k) => setTimeout(() => this.run === run && this.hud.toast(t, 'info'), 1600 + k * 900));
+    }
+    const pitaText = pg.grade === 'miss' ? (advice ? `　停止位置 ${advice}` : '') : `　${pg.label}`;
     if (s.terminal) {
       this.hud.big('終点 限界駅', (res.onTime ? `定時到着！ +¥${bonus}` : `遅延 ${Math.round(res.delay)}秒`) + pitaText, 2, res.onTime ? 'good' : 'bad');
     } else if (res.onTime) {
@@ -1227,6 +1270,22 @@ export class Game {
       this.hud.big(`遅延 ${Math.round(res.delay)}秒`, res.lost > 0 ? `${res.lost}人が待ちきれず帰宅…` : 'お客様はまだ待っていた', 1.6, 'bad');
     }
     if (res.leftBehind > 0) this.hud.toast(`満員で${res.leftBehind}人乗れず…`, 'warn');
+  }
+
+  /** ピタ止めで、どれだけずれていたか（「2.4m 手前」など） */
+  _pitaAdvice(s, err, grade) {
+    if (grade === 'perfect') return '';
+    const ahead = this._pitaAhead(s, err);
+    const parts = [];
+    if (Math.abs(ahead) > 0.6) parts.push(`${Math.abs(ahead).toFixed(1)}m ${ahead > 0 ? '行き過ぎ' : '手前'}`);
+    if (err.gap > 0.9) parts.push(`縁石まで ${err.gap.toFixed(1)}m`);
+    return parts.join('・');
+  }
+
+  /** 目標までの残り（進行方向基準。負 = 手前、正 = 行き過ぎ） */
+  _pitaAhead(s, err) {
+    const sign = s.travel ? s.travel.x * s.along.x + s.travel.z * s.along.z : 1;
+    return err.along * sign;
   }
 
   _boardOne(i) {
@@ -1335,6 +1394,9 @@ export class Game {
     m.zoneMat.opacity = 0.22 + Math.sin(t * 4) * 0.08;
     m.arrow.position.y = 6.5 + Math.sin(t * 3) * 0.6;
     m.arrow.rotation.y += dt * 2;
+    // 近づいたら停留所名の札は消す（画面上部の時計と重ならないように）
+    const lp = m.label.position;
+    m.label.visible = Math.hypot(lp.x - this.bus.x, lp.z - this.bus.z) > 38;
   }
 
   _updateHud() {
@@ -1346,7 +1408,9 @@ export class Game {
     const st = run.stops[idx];
     const waiting = st.status === 'pending' ? st.shown : st.result ? st.result.waiting : s.wait;
     const delay = run.t - s.scheduled;
-    const dx = s.zone.cx - bus.x, dz = s.zone.cz - bus.z;
+    // 距離はピタ止めの位置まで
+    const tg = s.target || { x: s.zone.cx, z: s.zone.cz };
+    const dx = tg.x - bus.x, dz = tg.z - bus.z;
     const dist = Math.hypot(dx, dz);
     // 進行方向に対する角度（画面上の矢印、上 = 前方）
     const fx = Math.sin(bus.h), fz = Math.cos(bus.h);
@@ -1387,6 +1451,9 @@ export class Game {
       initialWaiting: s.wait,
       terminal: !!s.terminal,
       leaveIn: delay >= 0 && st.status === 'pending' ? RULES.lateStepSec - (delay % RULES.lateStepSec) : null,
+      arrivedDelay: st.status !== 'pending' && st.result ? st.result.delay : null,
+      arrivedOnTime: !!(st.result && st.result.onTime),
+      grace: RULES.onTimeGraceSec,
       dist,
       arrowDeg: (ang * 180) / Math.PI,
       clock: RULES.startClockSec + run.t,
@@ -1406,10 +1473,18 @@ export class Game {
       this._routeFor = idx;
       const from = { c: Math.floor(bus.x / TILE), r: Math.floor(bus.z / TILE) };
       const to = { c: s.c, r: s.r };
-      const p = shortestPath(from, to, false, run.blocked) || shortestPath(from, to, true, run.blocked) || shortestPath(from, to, true);
+      const hd = headingDir(bus.h);
+      const p = approachPath(from, s, false, run.blocked, hd) || approachPath(from, s, true, run.blocked, hd) || shortestPath(from, to, true);
       this._route = p ? p.path.map((t) => tileCenter(t.c, t.r)) : null;
     }
     this.hud.missions(this._missions());
+    // ピタ止めのガイド（停留所の手前 26m から）
+    if (this.state === 'playing' && st.status === 'pending' && run.serving < 0 && s.target && dist < 26) {
+      const err = stopError(s, bus.x, bus.z);
+      // 終点のロータリーは入ってくる向きが決まらないので、距離だけで案内
+      const ahead = s.terminal ? -dist : this._pitaAhead(s, err);
+      this.hud.pitaGuide(ahead, !s.terminal && err.gap > 1.6 && Math.abs(ahead) < 8);
+    } else this.hud.pitaGuide(null);
     this.minimap.draw({
       route: this._route,
       bus: { x: bus.x, z: bus.z, h: bus.h },
@@ -1535,10 +1610,22 @@ export class Game {
       }
       return;
     }
-    let dist = 13.5, height = 6.4;
+    // 停留所に近づいてゆっくり走っているときは、カメラを高くして白枠を見やすくする
+    let k = 0;
+    const run = this.run;
+    if (run && !run.rampage && this.state === 'playing') {
+      const s = this.stops[Math.min(run.next, this.stops.length - 1)];
+      if (s && s.target) {
+        const d = Math.hypot(s.target.x - pose.x, s.target.z - pose.z);
+        k = Math.max(0, Math.min(1, (28 - d) / 14)) * Math.max(0, Math.min(1, (11 - this.bus.speed) / 5));
+      }
+    }
+    c.stopK = (c.stopK || 0) + (k - (c.stopK || 0)) * Math.min(1, dt * 2.2);
+    const K = c.stopK;
+    let dist = 13.5 - 2.5 * K, height = 6.4 + 6.5 * K;
     if (this.state === 'result') {
       const a = this.time * 0.3;
-      cam.position.set(pose.x + Math.cos(a) * 20, 9, pose.z + Math.sin(a) * 20);
+      cam.position.set(pose.x + Math.cos(a) * 22, 13, pose.z + Math.sin(a) * 22);
       cam.lookAt(pose.x, 1.5, pose.z);
       return;
     }
@@ -1549,12 +1636,12 @@ export class Game {
       const rect = solidRectForTile(tc, tr);
       if (rect && px > rect.x0 - 0.5 && px < rect.x1 + 0.5 && pz > rect.z0 - 0.5 && pz < rect.z1 + 0.5) {
         dist = Math.max(5, d - 1);
-        height = 6.4 + (13.5 - dist) * 0.45;
+        height = Math.max(height, 6.4 + (13.5 - dist) * 0.45);
         break;
       }
     }
     const want = new THREE.Vector3(pose.x - fx * dist, height + this.bus.lift, pose.z - fz * dist);
-    const look = new THREE.Vector3(pose.x + fx * 5, 1.8, pose.z + fz * 5);
+    const look = new THREE.Vector3(pose.x + fx * (5 + 2 * K), 1.8 - 1.2 * K, pose.z + fz * (5 + 2 * K));
     if (this._camSnap) {
       c.pos.copy(want);
       c.look.copy(look);

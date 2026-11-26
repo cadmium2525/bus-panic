@@ -4,7 +4,7 @@ import { TILE, N, T, tileAt, shortestPath } from '../world/map.js';
 import { Bus } from '../entities/bus.js';
 import { LIVERIES, labelTexture } from '../world/textures.js';
 import { Autopilot } from './autopilot.js';
-import { inZone } from './stops.js';
+import { inZone, legPath } from './stops.js';
 
 /** 交差点の間の区間（タイルの範囲と、両端のバリケードを置く位置） */
 function segmentOf(a, b) {
@@ -29,12 +29,10 @@ export function planClosures(nodes, stops, start, rnd, count) {
   for (const a of nodes) for (const b of a.nb) if (a.id < b.id) pairs.push([a, b]);
   // 停留所間の最短経路（幹線）に含まれるタイル
   const used = new Set();
-  let prev = { c: start.c, r: start.r };
-  for (const s of stops) {
-    const p = shortestPath(prev, { c: s.c, r: s.r }, false);
+  stops.forEach((s, i) => {
+    const p = legPath(stops[i - 1], s);
     if (p) for (const t of p.path) used.add(t.r * N + t.c);
-    prev = { c: s.c, r: s.r };
-  }
+  });
   const cands = [];
   for (const [a, b] of pairs) {
     const seg = segmentOf(a, b);
@@ -88,30 +86,26 @@ function barricadesFor(seg) {
   return sp;
 }
 
-/** 急ぎの客：乗る停留所と、2 つ先の降りる停留所 */
-export function planHurry(stops, rnd, count) {
-  const out = [];
-  const cand = [];
-  for (let i = 1; i < stops.length - 3; i++) cand.push(i);
-  while (out.length < count && cand.length) {
-    const i = cand.splice(Math.floor(rnd() * cand.length), 1)[0];
-    if (out.some((h) => Math.abs(h.from - i) < 2)) continue;
-    out.push({ from: i, to: i + 2, state: 'waiting', deadline: 0 });
-  }
-  return out.sort((a, b) => a.from - b.from);
+/**
+ * lo〜hi の整数から count 個を、互いに gap 以上離して選ぶ（入りきらなければ入るだけ）。
+ * 余白をランダムに配ってから並べるので、指定した数はかならず確保できる。
+ */
+export function pickSpaced(lo, hi, count, gap, rnd) {
+  const n = Math.max(0, Math.min(count, Math.floor((hi - lo) / gap) + 1));
+  if (n === 0) return [];
+  const free = hi - lo - (n - 1) * gap;
+  const offs = Array.from({ length: n }, () => Math.floor(rnd() * (free + 1))).sort((a, b) => a - b);
+  return offs.map((o, k) => lo + o + k * gap);
 }
 
-/** ライバルが現れる停留所（その停留所を発車したときに後ろから来る） */
+/** 急ぎの客：乗る停留所と、2 つ先の降りる停留所（終点には行かない） */
+export function planHurry(stops, rnd, count) {
+  return pickSpaced(1, stops.length - 4, count, 2, rnd).map((i) => ({ from: i, to: i + 2, state: 'waiting', deadline: 0 }));
+}
+
+/** ライバルが現れる停留所（その停留所を発車したときに後ろから来て、2 つ先を狙う） */
 export function planRivals(stops, rnd, count) {
-  const out = [];
-  const cand = [];
-  for (let i = 1; i < stops.length - 3; i++) cand.push(i);
-  while (out.length < count && cand.length) {
-    const i = cand.splice(Math.floor(rnd() * cand.length), 1)[0];
-    if (out.some((x) => Math.abs(x - i) < 3)) continue;
-    out.push(i);
-  }
-  return out.sort((a, b) => a - b);
+  return pickSpaced(1, stops.length - 4, count, 3, rnd);
 }
 
 /** ライバル会社「ギリギリ交通」のバス */

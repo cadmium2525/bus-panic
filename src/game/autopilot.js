@@ -1,7 +1,7 @@
 // デバッグ・動作検証用の自動運転（URL に ?autopilot を付けると有効）
 // 経路探索した車線タイルの中心を pure pursuit で追従する。
 import { TILE, shortestPath, tileCenter } from '../world/map.js';
-import { inZone } from './stops.js';
+import { inZone, approachPath, headingDir } from './stops.js';
 
 export class Autopilot {
   constructor({ alleys = false, cruise = 15, turnSpeed = 6.5, decel = 6 } = {}) {
@@ -17,7 +17,8 @@ export class Autopilot {
   _plan(bus, stop) {
     const from = { c: Math.floor(bus.x / TILE), r: Math.floor(bus.z / TILE) };
     const to = { c: stop.c, r: stop.r };
-    const p = (this.blocked && shortestPath(from, to, this.alleys, this.blocked)) || shortestPath(from, to, this.alleys);
+    const hd = bus.speed > 2 ? headingDir(bus.h) : null;
+    const p = (this.blocked && approachPath(from, stop, this.alleys, this.blocked, hd)) || approachPath(from, stop, this.alleys, null, hd) || shortestPath(from, to, this.alleys);
     if (!p) return;
     this.path = p.path.map((t) => tileCenter(t.c, t.r));
     // 最後はピタ止めの位置（なければゾーン中心）
