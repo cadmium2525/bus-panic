@@ -31,7 +31,9 @@ scene('leave', 0.1, cutAt(3), cutAt(5));
 scene('alley', 0.2, cutAt(5), cutAt(7));
 const railIn = (first('river', 'guardrail') ?? 1) - 0.6;
 scene('river', railIn, cutAt(7), cutAt(9));
-scene('drift', 0.15, cutAt(9), cutAt(11));
+// 電車にはねられる瞬間が、カットの頭から半小節ほどあとに来るように
+const trainIn = (first('train', 'train_crash') ?? 1.9) - BAR * 0.5;
+scene('train', trainIn, cutAt(9), cutAt(11));
 scene('result', 0.35, cutAt(11), cutAt(13));
 scene('ending', 0.2, cutAt(13), cutAt(16) + 2.4);
 const END = cutAt(16) + 2.4;
@@ -39,7 +41,7 @@ const END = cutAt(16) + 2.4;
 // ---- 素材 ----
 const media = {};
 for (const s of scenes) media[s.shot] = { name: `${s.shot}.mp4` };
-const SFX_KEYS = ['car', 'glass', 'cone', 'pot', 'sign', 'board', 'nobori', 'guardrail', 'splash', 'coin', 'ontime', 'door', 'leave', 'wall', 'fall', 'drumroll', 'rank', 'late'];
+const SFX_KEYS = ['car', 'glass', 'cone', 'pot', 'sign', 'board', 'nobori', 'guardrail', 'splash', 'coin', 'ontime', 'pita', 'combo', 'door', 'leave', 'wall', 'fall', 'drumroll', 'rank', 'late', 'train_crash', 'train_horn'];
 for (const k of SFX_KEYS) {
   const src = path.join(AUDIO, `sfx_${k}.mp3`);
   if (existsSync(src)) {
@@ -50,7 +52,7 @@ for (const k of SFX_KEYS) {
 
 const ZOOM = {};
 // 撮影した長さ（capture.cjs の sec）。足りないカットはゆっくり再生して尺を合わせる
-const SHOT_LEN = { crash: 3.6, stop: 8.5, leave: 4, alley: 4.2, river: 3.8, drift: 3.8, result: 5.6, ending: 6 };
+const SHOT_LEN = { crash: 3.6, stop: 8.5, leave: 4, alley: 4.2, river: 3.8, train: 5.2, drift: 3.8, result: 5.6, ending: 6 };
 const clips = scenes.map((s, i) => {
   const dur = s.end - s.start;
   const speed = Math.min(1, (SHOT_LEN[s.shot] - s.in - 0.05) / dur);
@@ -66,7 +68,7 @@ const clips = scenes.map((s, i) => {
 });
 
 // ---- 効果音（撮影時のタイミング）----
-const VOL = { car: 0.9, glass: 0.5, coin: 0.32, ontime: 0.6, door: 0.35, leave: 0.55, wall: 0.45, fall: 0.5, drumroll: 0.6, rank: 0.8 };
+const VOL = { car: 0.9, glass: 0.5, coin: 0.32, ontime: 0.6, pita: 0.75, combo: 0.6, door: 0.35, leave: 0.55, wall: 0.45, fall: 0.5, drumroll: 0.6, rank: 0.8, train_crash: 1, train_horn: 0.7 };
 const audios = [];
 const seen = new Map();
 for (const s of scenes) {
@@ -80,6 +82,17 @@ for (const s of scenes) {
     seen.set(e.key, at);
     audios.push({ media: 'sfx_' + e.key, start: at, volume: +((VOL[e.key] ?? 0.55) * Math.min(1, e.volume ?? 1)).toFixed(2), fadeOut: 0 });
   }
+}
+
+// 電車のシーンは踏切の鐘と走行音を敷く（ゲームではループ音なので撮影の記録に残らない）
+for (const k of ['crossing', 'train']) {
+  copyFileSync(path.join(AUDIO, `loop_${k}.wav`), path.join(MEDIA, `loop_${k}.wav`));
+  media['loop_' + k] = { name: `loop_${k}.wav` };
+}
+{
+  const s0 = scenes.find((s) => s.shot === 'train');
+  for (let t = s0.start; t < s0.end - 0.05; t += 1.0) audios.push({ media: 'loop_crossing', start: +t.toFixed(3), volume: 0.32, fadeIn: 0, fadeOut: t + 1.0 >= s0.end ? 0.3 : 0 });
+  for (let t = s0.start; t < s0.end - 0.05; t += 1.6) audios.push({ media: 'loop_train', start: +t.toFixed(3), volume: 0.45, fadeIn: 0, fadeOut: t + 1.6 >= s0.end ? 0.4 : 0 });
 }
 
 // 結果発表はドラムロールから
@@ -125,15 +138,15 @@ effects.push({ type: 'flash', start: m0 - 0.02, end: m0 + 0.35, intensity: 0.9 }
 effects.push({ type: 'shake', start: m0, end: m0 + 0.6, intensity: 0.8 });
 
 // 2. 停留所
-tx('時刻表どおりに', sc.stop.start + 0.05, sc.stop.start + BAR, { style: 'label', x: 0.5, y: 0.16, size: 0.06, anim: 'slide' });
-tx('客を乗せて 1人 ¥250', sc.stop.start + BAR * 0.5, sc.stop.end, { style: 'yellow', y: 0.83, size: 0.08, anim: 'pop' });
+tx('時刻表どおりに、ピタッと停車', sc.stop.start + 0.05, sc.stop.start + BAR * 1.1, { style: 'label', x: 0.5, y: 0.16, size: 0.058, anim: 'slide' });
+tx('定時コンボで ボーナス倍増！', sc.stop.start + BAR * 0.9, sc.stop.end, { style: 'yellow', y: 0.83, size: 0.075, anim: 'pop' });
 
 // 3. 遅延で客が帰る
 tx('遅れると…', sc.leave.start + 0.05, sc.leave.start + BAR, { style: 'telop', y: 0.2, size: 0.075, anim: 'fade' });
 tx('客が帰る。', sc.leave.start + BAR * 0.9, sc.leave.end, { style: 'pop', y: 0.5, size: 0.16, anim: 'pop', keys: [{ t: 0, scale: 0.4 }, { t: 0.25, scale: 1, ease: 'back' }] });
 
 // 4. 路地の近道
-tx('近道すれば間に合う！', sc.alley.start + 0.05, sc.alley.start + BAR, { style: 'label', y: 0.16, size: 0.06, anim: 'slide' });
+tx('近道すれば 巻きボーナス！', sc.alley.start + 0.05, sc.alley.start + BAR, { style: 'label', y: 0.16, size: 0.06, anim: 'slide' });
 tx('でも ぶつけたら罰金', sc.alley.start + BAR, sc.alley.end, { style: 'telop', y: 0.82, size: 0.085, color: '#ff6b5e', anim: 'pop' });
 
 // 5. ガードレール → 川
@@ -141,9 +154,13 @@ tx('ガードレール −¥2,000', sc.river.start + 0.25, sc.river.start + BAR 
 tx('ドボン', sc.river.start + BAR * 1.05, sc.river.end, { style: 'pop3d', y: 0.55, size: 0.17, anim: 'pop', rotation: 6, keys: [{ t: 0, y: 0.3, scale: 0.5 }, { t: 0.3, y: 0.55, scale: 1, ease: 'back' }] });
 effects.push({ type: 'shake', start: sc.river.start + 0.5, end: sc.river.start + 1.1, intensity: 0.5 });
 
-// 6. ドリフト
-tx('バスで ドリフト', sc.drift.start + 0.05, sc.drift.start + BAR * 1.2, { style: 'neon', y: 0.2, size: 0.09, anim: 'pop' });
-tx('乗客の悲鳴つき', sc.drift.start + BAR, sc.drift.end, { style: 'telop', y: 0.83, size: 0.075, anim: 'slide' });
+// 6. 電車
+const hitAt = sc.train.start + BAR * 0.5;
+tx('踏切に突っ込むと…', sc.train.start + 0.05, hitAt, { style: 'telop', y: 0.18, size: 0.07, anim: 'fade' });
+tx('電車 −¥10,000', hitAt, sc.train.end, { style: 'pop3d', y: 0.5, size: 0.14, anim: 'pop', rotation: -5, keys: [{ t: 0, scale: 1.7 }, { t: 0.2, scale: 1, ease: 'back' }] });
+tx('大惨事', hitAt + BAR * 0.5, sc.train.end, { style: 'telop', y: 0.8, size: 0.075, color: '#ff6b5e', anim: 'pop' });
+effects.push({ type: 'flash', start: hitAt - 0.03, end: hitAt + 0.3, intensity: 0.85 });
+effects.push({ type: 'shake', start: hitAt, end: hitAt + 0.7, intensity: 0.9 });
 
 // 7. 結果
 tx('急げば儲かる、', sc.result.start + 0.1, sc.result.end, { style: 'telop', x: 0.5, y: 0.07, size: 0.065, anim: 'slide' });

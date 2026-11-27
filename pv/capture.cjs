@@ -34,26 +34,35 @@ const SHOTS = {
       keys.add('KeyW');
     `,
   },
-  // 停留所で定時到着 → 乗車
+  // 停留所にピタッと止めて定時コンボ → 乗車（銀座商店街。標準の自動運転で正確に止める）
   stop: {
-    sec: 8.5, hud: 'full', auto: true,
+    sec: 8.5, hud: 'full', auto: 'on',
     setup: `
       run.stops[0].status = 'done'; run.next = 1; g._setMarker(g.stops[1]);
-      run.t = g.stops[1].scheduled - 7; run.onboard = 0;
-      g.bus.reset(70, 140, Math.PI / 2); g.bus.vx = 12;
+      const s = g.stops[1];
+      run.t = s.scheduled - 9; run.onboard = 6; g.bus.setOnboard(6, 60);
+      run.combo = 4; run.maxCombo = 4;
+      g.bus.reset(s.target.x - s.travel.x * 46, s.target.z - s.travel.z * 46, Math.atan2(s.travel.x, s.travel.z));
+      g.bus.vx = s.travel.x * 11; g.bus.vz = s.travel.z * 11;
     `,
   },
-  // 遅れると待ち客が帰っていく
+  // 遅れると待ち客が帰っていく（市民病院前）
   leave: {
     sec: 4.0, hud: 'full',
     setup: `
-      for (let k = 0; k < 7; k++) run.stops[k].status = 'done';
-      run.next = 7; g._setMarker(g.stops[7]);
-      run.t = g.stops[7].scheduled + 3; run.onboard = 30; g.bus.setOnboard(30, 60);
-      g.bus.reset(45 * 8 + 4 - 40, 41 * 8 + 4, Math.PI / 2); g.bus.vx = 5;
+      const K = 8, s = g.stops[K];
+      for (let k = 0; k < K; k++) run.stops[k].status = 'done';
+      run.next = K; g._setMarker(s);
+      run.t = s.scheduled + 3; run.onboard = 30; g.bus.setOnboard(30, 60);
+      g.bus.reset(s.target.x - s.travel.x * 40, s.target.z - s.travel.z * 40, Math.atan2(s.travel.x, s.travel.z));
+      g.bus.vx = s.travel.x * 5; g.bus.vz = s.travel.z * 5;
       // 停留所の待ち客を斜め前から写す固定カメラ（少しずつ横に動く）
-      const pole = g.stops[7].pole;
-      g.camOverride = { pos: [pole.x - 9, 2.4, pole.z + 9.5], look: [pole.x - 1, 1.1, pole.z - 0.5], drift: [0.9, 0], fov: 50 };
+      const p = s.pole, cd = s.curbDir, tv = s.travel;
+      g.camOverride = {
+        pos: [p.x - cd.x * 9.5 - tv.x * 9, 2.4, p.z - cd.z * 9.5 - tv.z * 9],
+        look: [p.x - tv.x + cd.x * 0.5, 1.1, p.z - tv.z + cd.z * 0.5],
+        drift: [tv.x * 0.9, tv.z * 0.9], fov: 50,
+      };
     `,
     frame: `
       if (f === 18) run.t += 30;
@@ -79,17 +88,34 @@ const SHOTS = {
       if (f > 4) keys.add(ph ? 'KeyA' : 'KeyD');
     `,
   },
-  // 川沿いのガードレールをなぎ倒して川へドボン
+  // 川沿いのガードレールをなぎ倒して川へドボン（A 通りと B 通りの間の土手）
   river: {
     sec: 3.8, hud: 'clean',
     setup: `
       g.camOverride = { yaw: -128, dist: 18, height: 4.5, lookAhead: 4, fov: 52, follow: 3 };
-      g.bus.reset(150, 225.5, Math.PI / 2 - 0.42);
+      g.bus.reset(70, 225.5, Math.PI / 2 - 0.42);
       g.bus.vx = Math.sin(Math.PI / 2 - 0.42) * 18; g.bus.vz = Math.cos(Math.PI / 2 - 0.42) * 18;
       run.onboard = 28; g.bus.setOnboard(28, 60);
       keys.add('KeyW');
     `,
     frame: `if (f === 40) keys.add('KeyA'); if (f === 70) keys.delete('KeyA');`,
+  },
+  // 遮断機を突破して電車にはね飛ばされる（B 通りの踏切）
+  train: {
+    sec: 5.2, hud: 'clean', hideBig: true,
+    setup: `
+      const R = g.railway;
+      R.timer = 999;
+      const t = R.trains.find((tr) => tr.dir === 1);
+      // 電車の先頭が、バスが線路に着く頃に踏切へ来るように置く
+      t.active = true; t.x = 167.2 - 21 * 1.9; t.mesh.visible = true; t.mesh.position.set(t.x, 0, t.z);
+      R.update(0.01);
+      for (const c of R.crossings) c.gate = c.warn ? 0.9 : 0;
+      g.bus.reset(168.5, 386, 0); g.bus.vz = 9;
+      run.onboard = 26; g.bus.setOnboard(26, 60);
+      // バスの後ろ（北）から踏切を見る。はね飛ばされたバスがこちらへ飛んでくる
+      g.camOverride = { pos: [175.5, 6.5, 365], look: [169, 1.6, 403], drift: [0, -0.9], fov: 50 };
+    `,
   },
   // 駅前ロータリーでサイドブレーキ・ドリフト
   drift: {
@@ -153,9 +179,9 @@ const HUD_CSS = {
     });
     const page = await ctx.newPage();
     page.on('pageerror', (e) => console.error(name, 'pageerror', e.message));
-    await page.goto(`http://localhost:4173/?capture${shot.auto ? '&autopilot=fast' : ''}`);
+    await page.goto(`http://localhost:4173/?capture${shot.auto ? `&autopilot=${shot.auto === true ? 'fast' : shot.auto}` : ''}`);
     await page.waitForFunction(() => window.__game && window.__step);
-    await page.addStyleTag({ content: HUD_CSS[shot.hud] + ' .bigmsg.count, #loading { display:none !important; }' });
+    await page.addStyleTag({ content: HUD_CSS[shot.hud] + (shot.hideBig ? ' .bigmsg { display:none !important; }' : '') + ' .bigmsg.count, #loading { display:none !important; }' });
     // 運行開始（カウントダウンは飛ばす）
     await page.evaluate((code) => {
       const g = window.__game;
