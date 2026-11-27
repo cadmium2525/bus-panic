@@ -156,9 +156,10 @@ effects.push({ type: 'shake', start: sc.river.start + 0.5, end: sc.river.start +
 
 // 6. 電車
 const hitAt = sc.train.start + BAR * 0.5;
-tx('踏切に突っ込むと…', sc.train.start + 0.05, hitAt, { style: 'telop', y: 0.18, size: 0.07, anim: 'fade' });
-tx('電車 −¥10,000', hitAt, sc.train.end, { style: 'pop3d', y: 0.5, size: 0.14, anim: 'pop', rotation: -5, keys: [{ t: 0, scale: 1.7 }, { t: 0.2, scale: 1, ease: 'back' }] });
-tx('大惨事', hitAt + BAR * 0.5, sc.train.end, { style: 'telop', y: 0.8, size: 0.075, color: '#ff6b5e', anim: 'pop' });
+tx('踏切に突っ込むと…', sc.train.start + 0.05, hitAt, { style: 'telop', y: 0.84, size: 0.07, anim: 'fade' });
+// 事故の瞬間（画面の中ほど）を隠さないよう、文字は上下に置く
+tx('電車 −¥10,000', hitAt, sc.train.end, { style: 'pop3d', y: 0.2, size: 0.13, anim: 'pop', rotation: -4, keys: [{ t: 0, scale: 1.7 }, { t: 0.2, scale: 1, ease: 'back' }] });
+tx('大惨事', hitAt + BAR * 0.45, sc.train.end, { style: 'telop', y: 0.86, size: 0.075, color: '#ff6b5e', anim: 'pop' });
 effects.push({ type: 'flash', start: hitAt - 0.03, end: hitAt + 0.3, intensity: 0.85 });
 effects.push({ type: 'shake', start: hitAt, end: hitAt + 0.7, intensity: 0.9 });
 
