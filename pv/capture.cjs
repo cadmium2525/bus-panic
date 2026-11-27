@@ -113,8 +113,8 @@ const SHOTS = {
       for (const c of R.crossings) c.gate = c.warn ? 0.9 : 0;
       g.bus.reset(168.5, 386, 0); g.bus.vz = 9;
       run.onboard = 26; g.bus.setOnboard(26, 60);
-      // バスの後ろ（北）から踏切を見る。はね飛ばされたバスがこちらへ飛んでくる
-      g.camOverride = { pos: [175.5, 6.5, 365], look: [169, 1.6, 403], drift: [0, -0.9], fov: 50 };
+      // 線路の脇（東側）から踏切を見る。電車がこちらへ迫ってきて、踏切に入ったバスをはね飛ばす
+      g.camOverride = { pos: [214, 3.6, 403.6], look: [168, 2.0, 402.0], drift: [-1.2, 0], fov: 44 };
     `,
   },
   // 駅前ロータリーでサイドブレーキ・ドリフト
