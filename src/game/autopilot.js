@@ -62,6 +62,10 @@ export class Autopilot {
       if (Math.hypot(this.path[i].x - bus.x, this.path[i].z - bus.z) >= look) { tgt = this.path[i]; break; }
     }
     const fx = Math.sin(bus.h), fz = Math.cos(bus.h);
+    // 追い越し中は進路を右（センターライン側）へずらす
+    this.offset = (this.offset || 0) + ((this.passT > 0 ? 2.7 : 0) - (this.offset || 0)) * Math.min(1, dt * 1.5);
+    if (this.passT > 0) this.passT -= dt;
+    if (this.offset > 0.05) tgt = { x: tgt.x - fz * this.offset, z: tgt.z + fx * this.offset };
     const dx = tgt.x - bus.x, dz = tgt.z - bus.z;
     const ang = Math.atan2(fx * dz - fz * dx, fx * dx + fz * dz); // 正 = 右
     out.steer = Math.max(-1, Math.min(1, ang * 2.2));
@@ -104,6 +108,21 @@ export class Autopilot {
       }
       this.followT = gap < 30 && bus.speed < 0.5 ? (this.followT || 0) + dt : 0;
       if (gap < 30 && this.followT < 4) vt = Math.min(vt, Math.max(0, Math.sqrt(2 * this.decel * Math.max(0, gap - 2)) - 0.5));
+    }
+    // ほかのバス（ライバルから見た自分のバス）：後ろについて走り、止まっていれば右側をすり抜けて追い越す
+    if (this.others) {
+      for (const o of this.others) {
+        if (!o || o.hidden) continue;
+        const rx = o.x - bus.x, rz = o.z - bus.z;
+        const along = rx * fx + rz * fz;
+        if (along <= 0 || along > 36) continue;
+        const right = -rx * fz + rz * fx; // 正 = 右側
+        if (Math.abs(right - this.offset) > 2.9) continue;
+        const gap = along - 12;
+        if ((o.speed || 0) < 2.5 && gap < 20) this.passT = 3;
+        if (this.passT > 0 && Math.abs(right - 2.7) > 2.6) continue;
+        vt = Math.min(vt, Math.max(0, Math.sqrt(2 * this.decel * Math.max(0, gap)) - 0.5));
+      }
     }
     if (bus.speed < vt - 0.5) out.throttle = true;
     else if (bus.speed > vt + (toEnd < 40 ? 0.3 : 0.8)) out.brake = true;

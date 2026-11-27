@@ -283,6 +283,11 @@ export class Hud {
   floatText(x, y, text, kind = '') {
     // 浮き文字は上へ 50px ほど昇るので、そのぶん下げる
     y = this._belowBig(y, 85);
+    // 直前に出した浮き文字と重なるなら、少しずらして積む
+    const now = performance.now();
+    this._recentFloats = (this._recentFloats || []).filter((f) => now - f.t < 900);
+    for (let k = 0; k < 4 && this._recentFloats.some((f) => Math.abs(f.x - x) < 150 && Math.abs(f.y - y) < 24); k++) y += 26;
+    this._recentFloats.push({ x, y, t: now });
     let d = this.floatPool.pop();
     if (!d) {
       d = document.createElement('div');
@@ -301,8 +306,9 @@ export class Hud {
   /** 大きな見出し（定時到着・遅延など）が出ている間は、その帯（画面の上から 22〜52%）にかからないよう y を下げる */
   _belowBig(y, gap) {
     if (!this.el.big.classList.contains('show')) return y;
-    const H = this.el.root.clientHeight || window.innerHeight;
-    const top = H * 0.22, bottom = H * 0.52;
+    // 見出しの実際の位置（画面の高さで変わる）から帯を決める
+    const r = this.el.big.getBoundingClientRect();
+    const top = r.top - 30, bottom = r.bottom;
     return y > top && y < bottom + gap ? bottom + gap : y;
   }
 

@@ -15,7 +15,7 @@ import { Railway } from '../entities/railway.js';
 import { planClosures, planHurry, planRivals, Rival, spotBehind } from './happenings.js';
 import { defaultMods, dailyChallenge, seededRandom, MODES } from './modes.js';
 import { SpatialHash } from '../core/collision.js';
-import { TILE, N, T, tileAt, isDrivableType, solidRectForTile, shortestPath, tileCenter, H_ROADS, V_ROADS, ALLEYS } from '../world/map.js';
+import { TILE, N, T, tileAt, isDrivableType, solidRectForTile, shortestPath, tileCenter, H_ROADS, V_ROADS, ALLEYS, RAIL } from '../world/map.js';
 import { Autopilot } from './autopilot.js';
 import { Effects } from '../entities/effects.js';
 import { GhostRecorder, GhostBus, loadGhost } from './ghost.js';
@@ -114,6 +114,7 @@ export class Game {
     this.rival = new Rival(this.scene);
     this.rival.railway = this.railway;
     this.rival.traffic = this.traffic;
+    this.rival.player = this.bus;
     this.traffic.extraBuses = [this.rival];
     this._buildStopVisuals();
     this._buildMarker();
@@ -122,7 +123,13 @@ export class Game {
     this.minimap = minimap;
     const ap = debug.autopilot;
     this.autopilot = ap
-      ? new Autopilot(ap.includes('fast') ? { alleys: ap.includes('alley'), cruise: 19.5, turnSpeed: 8.5, decel: 8.5 } : { alleys: ap.includes('alley') })
+      ? new Autopilot(
+          ap.includes('fast')
+            ? { alleys: ap.includes('alley'), cruise: 19.5, turnSpeed: 8.5, decel: 7.2 }
+            : ap.includes('careful')
+              ? { alleys: ap.includes('alley'), cruise: 12.5, turnSpeed: 5.5, decel: 4.5 } // 慎重な人（時速 45km）
+              : { alleys: ap.includes('alley') },
+        )
       : null;
     if (this.autopilot && !ap.includes('wild')) {
       this.autopilot.railway = this.railway;
@@ -527,10 +534,10 @@ export class Game {
   }
 
   /** 見せ場（score が高いものほど残る） */
-  _highlight(label, score, tail, shotDelay = 0.15) {
+  _highlight(label, score, tail, shotDelay = 0.15, kind = label) {
     if (this.state !== 'playing') return;
     const now = performance.now() / 1000;
-    if (this.clips) this.clips.highlight(label, score, now, tail);
+    if (this.clips) this.clips.highlight(label, score, now, tail, kind);
     if (!this._bestShot || score > this._bestShot.score) {
       if (!this._shotReq || score > this._shotReq.score) this._shotReq = { score, at: now + shotDelay };
     }
@@ -743,9 +750,16 @@ export class Game {
       if (run.ledger.charge(it.id, it.kind.cls, p.amount, it.kind.label, run.t)) this._rampageHit(RAMPAGE.points[it.kind.cls] ?? p.amount, it.kind.label, it.x, it.z, it.kind.cls);
       return;
     }
-    const amount = p.amount * run.mods.fineMult;
+    let amount = p.amount * run.mods.fineMult;
+    // ガードレールは続けてこすっても 1 回の接触につき 1 区画分だけ
+    let sameRail = false;
+    if (it.kind.cls === 'guardrail') {
+      sameRail = run.t - (run.railT ?? -99) < 1.5;
+      run.railT = run.t;
+      if (sameRail) amount = 0;
+    }
     if (run.ledger.charge(it.id, it.kind.cls, amount, it.kind.label, run.t)) {
-      this._floatWorld(it.x, 1.5, it.z, `−¥${amount.toLocaleString()} ${it.kind.label}`, 'fine');
+      if (!sameRail) this._floatWorld(it.x, 1.5, it.z, `−¥${amount.toLocaleString()} ${it.kind.label}`, 'fine');
       if (it.kind.cls === 'guardrail') {
         this.cam.shake = Math.max(this.cam.shake, 0.35);
         this._voice('rail');
@@ -1041,7 +1055,9 @@ export class Game {
       run.crNow = cr;
       run.crEnterGate = cr && cr.warn ? cr.gate : 0;
     }
-    // 電車にはねられて飛ばされている間は踏切無視に数えない
+    // 電車にはねられたあと、線路の上にいる間は同じ事故を二度数えない（線路から出るまで延長）
+    if ((this._trainCd || 0) > run.t && bus.z > RAIL.z0 - 3 && bus.z < RAIL.z1 + 3) this._trainCd = run.t + 1.5;
+    // 電車にはね飛ばされている間は踏切無視に数えない
     const knocked = bus.knockT > 0 || bus.airborne || (this._trainCd || 0) > run.t;
     if (cr && cr.warn && run.crEnterGate > 0.25 && bus.speed > 1 && !cr.violated && !knocked) {
       cr.violated = true;
@@ -1099,6 +1115,15 @@ export class Game {
       return;
     }
     const amt = RULES.trainCrashPenalty;
+    // 直前に同じ踏切で取った「踏切無視」は、この事故の罰金にまとめる（二重に取らない）
+    const items = run.ledger.items;
+    for (let k = items.length - 1; k >= 0; k--) {
+      if (items[k].kind === 'crossing' && run.t - items[k].t < 8) {
+        items.splice(k, 1);
+        run.crossingFines = Math.max(0, run.crossingFines - 1);
+        break;
+      }
+    }
     run.ledger.chargeEvent('train', amt, '電車と接触事故', run.t);
     this.hud.big('大惨事！', `電車と接触事故 −¥${amt.toLocaleString()}`, 2, 'bad');
     this._floatWorld(bus.x, 4, bus.z, `−¥${amt.toLocaleString()} 電車と接触`, 'fine big');
@@ -1115,9 +1140,9 @@ export class Game {
     const targetIdx = run.next + 1;
     const target = this.stops[targetIdx];
     if (!target || target.terminal || run.stops[targetIdx].status !== 'pending') return;
-    const spot = spotBehind(this.bus, 34);
+    const spot = spotBehind(this.bus, 46);
     if (!spot) return;
-    this.rival.start(spot.x, spot.z, spot.h, target);
+    this.rival.start(spot.x, spot.z, spot.h, target, Math.min(12, this.bus.speed + 3));
     this.rival.targetIdx = targetIdx;
     run.rivalTarget = targetIdx;
     this.audio.play('rival', { volume: 0.8 });
@@ -1187,7 +1212,7 @@ export class Game {
     const got = Math.round(points * mult);
     rp.points += got;
     this._floatWorld(x, 2, z, `+${got.toLocaleString()}${mult > 1 ? ` ×${mult}` : ''} ${label}`, 'fare');
-    if (rp.chain !== before && (rp.chain === 7 || rp.chain === 12)) this._highlight(`${rp.chain} コンボ破壊`, 40 + rp.chain * 2);
+    if (rp.chain !== before && (rp.chain === 7 || rp.chain === 12)) this._highlight(`${rp.chain} コンボ破壊`, 40 + rp.chain * 2, undefined, 0.15, 'combo');
     if (rp.chain !== before && (rp.chain === 3 || rp.chain === 7 || rp.chain === 12)) {
       this.hud.big(`${rp.chain} コンボ！`, `破壊点 ×${mult}`, 0.9, 'go');
       this.audio.play('combo', { volume: 0.7 });
@@ -1279,9 +1304,13 @@ export class Game {
       } else if (!s.terminal) {
         // 停止位置が大きくずれていたら、すぐには到着にしない（少し動いて止め直せる）
         const err = stopError(s, bus.x, bus.z);
-        if (pitaGrade(err.along, err.gap).grade === 'miss' && run.stillT < RULES.missHoldSec) {
+        const g = pitaGrade(err.along, err.gap).grade;
+        const hold = g === 'miss' ? RULES.missHoldSec : g === 'good' ? RULES.goodHoldSec : 0;
+        if (run.stillT < hold) {
           run.missHold = true;
-          this.hud.dwell(run.stillT / RULES.missHoldSec, '位置ずれ！ 今なら動いて止め直せます');
+          const a = this._pitaAhead(s, err);
+          const where = Math.abs(a) >= 0.6 ? `${Math.abs(a).toFixed(1)}m ${a > 0 ? '行き過ぎ' : '手前'}` : '縁石から遠い';
+          this.hud.dwell(run.stillT / hold, `位置ずれ（${where}）… 動けば止め直せます`);
           return;
         }
       }
@@ -1374,7 +1403,7 @@ export class Game {
       this._floatWorld(bus.x, 4.5, bus.z, `${pg.label} +¥${pg.bonus}${advice ? `（${advice}）` : ''}`, pg.grade === 'perfect' ? 'pita' : 'fare');
       if (pg.grade === 'perfect') {
         this.effects.confetti(bus.x, 6, bus.z, 18);
-        this._highlight(run.combo >= 3 ? `ピタッ！＋定時コンボ ×${run.combo}` : 'ピタッ！', 20 + Math.min(20, run.combo * 2));
+        this._highlight(run.combo >= 3 ? `ピタッ！＋定時コンボ ×${run.combo}` : 'ピタッ！', 20 + Math.min(20, run.combo * 2), undefined, 0.15, 'pita');
       }
     } else if (!s.terminal) this._floatWorld(bus.x, 4.5, bus.z, `停止位置ずれ（${advice}）`, 'miss');
     if (!res.onTime && prevCombo >= 2) this.hud.toast(`定時コンボが途切れた…（${prevCombo}連続）`, 'warn');
@@ -1652,8 +1681,14 @@ export class Game {
       const from = { c: Math.floor(bus.x / TILE), r: Math.floor(bus.z / TILE) };
       const to = { c: s.c, r: s.r };
       const hd = headingDir(bus.h);
-      const p = approachPath(from, s, false, run.blocked, hd) || approachPath(from, s, true, run.blocked, hd) || shortestPath(from, to, true);
-      this._route = p ? p.path.map((t) => tileCenter(t.c, t.r)) : null;
+      if (inZone(s, bus.x, bus.z) || (from.c === to.c && from.r === to.r)) {
+        // もう停留所の枠の中：道順は出さず、停止位置だけを結ぶ（同じタイルから探すと街区を一周してしまう）
+        this._route = [{ x: bus.x, z: bus.z }, s.target ? { x: s.target.x, z: s.target.z } : { x: s.zone.cx, z: s.zone.cz }];
+        this._routeT = 8;
+      } else {
+        const p = approachPath(from, s, false, run.blocked, hd) || approachPath(from, s, true, run.blocked, hd) || shortestPath(from, to, true);
+        this._route = p ? p.path.map((t) => tileCenter(t.c, t.r)) : null;
+      }
     }
     this.hud.missions(this._missions());
     // ピタ止めのガイド（停留所の手前 26m から）

@@ -25,13 +25,13 @@ export const RIVER_ROWS = [30, 33];
 export const BANK_ROW = 29;
 export const PARK_ROWS = [34, 35];
 
-// 路地（近道）: [c0, r0, c1, r1, 種別]
+// 路地（近道）: [c0, r0, c1, r1, 種別]。shortcut: 順路の区間を大きく短縮できる路地（入口に曲がり込むので角に標識を置かない）
 export const ALLEYS = [
   { rect: [12, 5, 12, 16], kind: 'shop', name: '限界銀座商店街' },
   { rect: [22, 10, 36, 10], kind: 'house', name: '二丁目の路地' },
-  { rect: [46, 19, 46, 26], kind: 'factory', name: '工場裏の工事路地' },
-  { rect: [29, 43, 29, 53], kind: 'house', name: '南町の路地' },
-  { rect: [5, 48, 19, 48], kind: 'danchi', name: '団地の抜け道' },
+  { rect: [46, 19, 46, 26], kind: 'factory', name: '工場裏の工事路地', shortcut: true },
+  { rect: [29, 43, 29, 53], kind: 'house', name: '南町の路地', shortcut: true },
+  { rect: [5, 48, 19, 48], kind: 'danchi', name: '団地の抜け道', shortcut: true },
   { rect: [39, 10, 53, 10], kind: 'shrine', name: '参道' },
 ];
 

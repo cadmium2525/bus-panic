@@ -318,7 +318,8 @@ export class Bus {
 
     // ステアリング（デジタル入力をなめらかに）
     const target = -input.steer; // 正 = 左
-    const rate = Math.sign(target) !== Math.sign(this.steer) && target !== 0 ? 5 : target === 0 ? 4 : 2.6;
+    // 切り始めは速度が高いほどゆっくり（高速で少し押しただけで大きく曲がらないように）。戻しと切り返しは速く
+    const rate = Math.sign(target) !== Math.sign(this.steer) && target !== 0 ? 5 : target === 0 ? 4 : 2.6 / (1 + speed / 20);
     this.steer += THREE.MathUtils.clamp(target - this.steer, -rate * dt, rate * dt);
 
     // 加減速
@@ -340,8 +341,8 @@ export class Bus {
     // ブレーキは踏み続けるほど強くなる（軽く踏めば急ブレーキにならない）
     if (input.brake && !input.hold && vf > 0.4) this.brakeHold += dt;
     else this.brakeHold = 0;
-    // 踏み始めは弱く（軽く踏めば微調整できる）、0.7 秒ほど踏み続けると最大
-    const brakeForce = BUS.brake * this.tuning.brake * (0.3 + 0.7 * Math.pow(Math.min(1, this.brakeHold / 0.7), 1.5));
+    // 踏み始めは弱く（軽く踏めば微調整できる）、1 秒ほど踏み続けると最大
+    const brakeForce = BUS.brake * this.tuning.brake * (0.25 + 0.75 * Math.pow(Math.min(1, this.brakeHold / 1.0), 1.6));
     if (input.brake && !input.hold) {
       if (vf > 0.4) along -= brakeForce * (0.85 + 0.15 * loadK);
       else if (!input.throttle && (this.reverseHold > 0.35 || vf < -0.4)) along -= vf > -BUS.maxReverse ? BUS.reverseAccel : 0;

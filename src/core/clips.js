@@ -134,19 +134,20 @@ export class ClipRecorder {
    * 見せ場が起きた。score が高いものほど優先して残す。tail 秒あとまで録ってから切り出す。
    * 見せ場の瞬間の画面は静止画（poster）として残す（動画の表紙・シェア画像の背景用）
    */
-  highlight(label, score, now, tail = TAIL_SEC) {
+  highlight(label, score, now, tail = TAIL_SEC, kind = label) {
     if (!this.active) return;
     if (this.pending) {
       // 近い時間の見せ場はひとつにまとめる（高いほうの名前で）
-      if (score > this.pending.score) Object.assign(this.pending, { label, score, poster: this._still() });
+      if (score > this.pending.score) Object.assign(this.pending, { label, score, kind, poster: this._still() });
       this.pending.until = Math.max(this.pending.until, now + tail);
       return;
     }
-    // 残す枠がいっぱいで、今回のほうが低ければ録らない。同じ見出しは高いほう 1 本だけ
-    if (this.clips.length >= KEEP && score <= Math.min(...this.clips.map((c) => c.score))) return;
-    const same = this.clips.find((c) => c.label === label);
+    // 同じ種類（ピタ止め・事故など）は高いほう 1 本だけ。種類がばらけるように
+    const same = this.clips.find((c) => c.kind === kind);
     if (same && same.score >= score) return;
-    this.pending = { label, score, until: now + tail, at: now, poster: this._still() };
+    // 残す枠がいっぱいで、今回のほうが低ければ録らない
+    if (!same && this.clips.length >= KEEP && score <= Math.min(...this.clips.map((c) => c.score))) return;
+    this.pending = { label, score, kind, until: now + tail, at: now, poster: this._still() };
   }
 
   /** いまの録画用キャンバスの静止画 */
@@ -172,14 +173,14 @@ export class ClipRecorder {
     // 前が LEAD_MIN_SEC より短くても、何もないよりは残す
     const slot = cands.find((s) => p.at - s.startedAt >= LEAD_MIN_SEC) || cands[0];
     slot.onDone = (blob) =>
-      this._add({ label: p.label, score: p.score, blob, ext: this.ext, xReady: this.xReady, withAudio: this.withAudio, poster: p.poster, sec: Math.round(now - slot.startedAt) });
+      this._add({ label: p.label, score: p.score, kind: p.kind, blob, ext: this.ext, xReady: this.xReady, withAudio: this.withAudio, poster: p.poster, sec: Math.round(now - slot.startedAt) });
     slot.rec.stop();
   }
 
   _add(clip) {
     if (!clip.blob || clip.blob.size < 2000) return;
-    // 同じ見出しのものは高いほうだけ
-    const k = this.clips.findIndex((c) => c.label === clip.label);
+    // 同じ種類のものは高いほうだけ
+    const k = this.clips.findIndex((c) => c.kind === clip.kind);
     if (k >= 0) {
       if (this.clips[k].score >= clip.score) return;
       this.clips.splice(k, 1);

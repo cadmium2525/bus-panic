@@ -11,7 +11,7 @@ export const RULES = {
   maki: { freeSec: 2, perSec: 150, max: 3000 }, // 巻きボーナス：区間を時刻表の想定より速く走ると 1 秒 ¥150（最初の 2 秒はなし、1 区間 ¥3,000 まで）
   rivalWin: 1000, // ライバルより先に停留所に着いたボーナス
   crossingPenalty: 2000, // 遮断機が下りている踏切に入った（踏切無視）
-  crossingSlackSec: 8, // 踏切 1 か所ごとの時刻表の余裕（電車待ち）
+  crossingSlackSec: 5, // 踏切 1 か所ごとの時刻表の余裕（電車待ち。残りは区間ごとの余裕として全体に配っている）
   trainCrashPenalty: 10000, // 電車との接触事故（その他ペナルティ）
   onTimeGraceSec: 5, // 遅延がこの秒数以下なら「定時」
   allStopsBonus: 5000, // 全停留所制覇ボーナス
@@ -25,6 +25,7 @@ export const RULES = {
   suddenBrakeFreeWarnings: 2, // 最初の何回かは注意だけ（罰金なし）
   stopSpeedKmh: 1.2, // 停留所の枠内でこの速度以下（ほぼ停止）になったら到着
   missHoldSec: 1.1, // 停止位置が大きくずれているときは、この秒数止まったままで到着（その前に動けば止め直せる）
+  goodHoldSec: 0.7, // 「まあまあ」（1.5〜3m のずれ）のときの待ち時間
   dwellBaseSec: 1.2, // 乗降処理の基本時間
   dwellPerPersonSec: 0.12, // 1人あたりの乗降時間
   capacity: 60, // 定員
@@ -32,7 +33,7 @@ export const RULES = {
   startClockSec: 8 * 3600, // 8:00:00 発
   // 時刻表：大通りを丁寧に走る人（自動運転より 6% ほど遅い）がだいたい定時になるように。余裕が序盤だけ・終盤だけに偏らない
   scheduleSpeed: 12.7, // 想定速度 (m/s)
-  scheduleLegSec: 4.1, // 区間ごとの発進・減速のぶん
+  scheduleLegSec: 4.6, // 区間ごとの発進・減速のぶん（踏切待ちの余裕の一部を含む）
   scheduleTurnSec: 1.3, // 曲がり角 1 つあたりのロス
   scheduleDwellSec: 4, // 停車時間の既定値（停留所ごとの乗降人数から計算できないとき）
   scheduleDwellExtraSec: 0.5, // 乗降時間に足す余裕
@@ -94,12 +95,12 @@ export const BUS = {
   height: 3.1,
   wheelBase: 5.6,
   maxSpeed: 20.5, // m/s ≒ 74km/h
-  maxReverse: 6,
+  maxReverse: 4.2,
   accel: 6.2,
   brake: 13,
-  reverseAccel: 4,
-  drag: 0.05,
-  rolling: 0.6,
+  reverseAccel: 2.4,
+  drag: 0.04,
+  rolling: 0.45,
   maxSteer: 0.62, // rad
   grip: 9,
   handbrakeGrip: 1.6,

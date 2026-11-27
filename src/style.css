@@ -661,6 +661,18 @@ button {
 .bigmsg.count #bigmsg-main {
   font-size: clamp(60px, 12vw, 120px);
 }
+/* 背の低い画面（スマホ横持ち）では、左上のパネルと地図にかからないよう少し下に小さめに出す */
+@media (max-height: 460px) {
+  .bigmsg {
+    top: 50%;
+  }
+  #bigmsg-main {
+    font-size: clamp(26px, 5.6vw, 44px);
+  }
+  #bigmsg-sub {
+    font-size: 14px;
+  }
+}
 @keyframes pop {
   from {
     transform: scale(0.4);

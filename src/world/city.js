@@ -822,6 +822,8 @@ export function buildCity(scene, { decorDensity = 1, stops = [] } = {}) {
       if (tileAt(c, 29) !== T.BANK) continue;
       // 橋の入口の両脇は、橋へ曲がるバスの内輪が当たるので置かない
       if (tileAt(Math.floor((x - 7) / TILE), 29) === T.BRIDGE || tileAt(Math.floor((x + 11) / TILE), 29) === T.BRIDGE) continue;
+      // 川沿いの丁字路（南北の道が川で行き止まりになる所）も、曲がるバスがはみ出すので置かない
+      if (Object.values(V_ROADS).some(([c0, c1]) => tileAt(c0, 29) === T.BANK && x + 4 > c0 * TILE - 10 && x < (c1 + 1) * TILE + 10)) continue;
       addSpawn('guardrail', x + 2, z, 0);
     }
   }
@@ -857,10 +859,12 @@ export function buildCity(scene, { decorDensity = 1, stops = [] } = {}) {
         if (roll < 0.55) at(along, side, 'pot');
         else if (roll < 0.62) at(along, side, 'board', 3);
       } else if (a.kind === 'factory') {
-        // 工事中: ジグザグのコーンとバリケード
-        const zig = Math.floor(p / 6.4) % 2 === 0;
-        if (roll < 0.8) at(along, zig ? lineA + 1.4 : lineB - 1.4, 'cone');
-        if (Math.floor(p / 3.2) % 5 === 2) at(along, zig ? lineB - 0.3 : lineA + 0.3, 'barricade');
+        // 工事中: 16m ごとに左右が入れ替わるコーン列とバリケード（バスの長さより長い周期なので、丁寧に寄せれば無傷で抜けられる）
+        // 出入口の 10m は曲がって入ってくるバスのために空けておく
+        if (p < 10 || p > len - 10) continue;
+        const zig = Math.floor((p - 6) / 16) % 2 === 0;
+        if (roll < 0.85) at(along, zig ? lineA + 1.2 : lineB - 1.2, 'cone');
+        if ((p - 6) % 16 < 3.2) at(along, zig ? lineA + 0.2 : lineB - 0.2, 'barricade');
       } else if (a.kind === 'danchi') {
         if (roll < 0.35) at(along, side, 'cone');
         else if (roll < 0.65) at(along, side, 'pot');
@@ -873,10 +877,11 @@ export function buildCity(scene, { decorDensity = 1, stops = [] } = {}) {
       }
     }
     // 路地の出入口に「止まれ」標識（歩道の角）
+    // 角から少し離して立てる（路地から大通りへ曲がるバスの内側に入らないように）
     const ends = vertical
-      ? [[c0 * TILE - 0.6, r0 * TILE + 0.8], [(c0 + 1) * TILE + 0.6, (r1 + 1) * TILE - 0.8]]
-      : [[c0 * TILE + 0.8, (r0 + 1) * TILE + 0.6], [(c1 + 1) * TILE - 0.8, r0 * TILE - 0.6]];
-    for (const [x, z] of ends) addSpawn('sign', x, z, 0, 0);
+      ? [[c0 * TILE - 3.5, r0 * TILE + 1.0], [(c0 + 1) * TILE + 3.5, (r1 + 1) * TILE - 1.0]]
+      : [[c0 * TILE + 1.0, (r0 + 1) * TILE + 3.5], [(c1 + 1) * TILE - 1.0, r0 * TILE - 3.5]];
+    if (!a.shortcut) for (const [x, z] of ends) addSpawn('sign', x, z, 0, 0);
   }
 
   // 幹線の歩道: 交差点角の標識、商店前の植木鉢・立て看板、工事区間のコーン
@@ -942,7 +947,7 @@ export function buildCity(scene, { decorDensity = 1, stops = [] } = {}) {
     addSpawn('barricade', w.x0 - 1, w.z, Math.PI / 2);
   }
   // 縦の道の路肩にも
-  for (let z = 21 * TILE; z <= 25 * TILE; z += 2.5) addSpawn('cone', 55 * TILE + 6.8, z + 0.0);
+  for (let z = 43 * TILE; z <= 47 * TILE; z += 2.5) addSpawn('cone', 55 * TILE + 6.8, z + 0.0); // 順路が通らない D 通りの南行き
   for (let z = 44 * TILE; z <= 47 * TILE; z += 2.5) addSpawn('cone', 3 * TILE + 1.2, z);
 
   // 自動販売機（幹線の歩道、建物の際。当たり判定あり）

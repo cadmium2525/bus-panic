@@ -141,13 +141,15 @@ export class Rival {
     return this.bus.vz;
   }
 
-  start(x, z, h, target) {
+  start(x, z, h, target, speed = 12) {
     this.bus.reset(x, z, h);
-    this.bus.vx = Math.sin(h) * 12;
-    this.bus.vz = Math.cos(h) * 12;
+    this.bus.vx = Math.sin(h) * speed;
+    this.bus.vz = Math.cos(h) * speed;
     this.ap = new Autopilot({ cruise: 13.5, turnSpeed: 7.5, decel: 7 });
     this.ap.railway = this.railway;
     this.ap.traffic = this.traffic;
+    // 自分のバスには追突しない（止まっていれば横をすり抜けて追い越す）
+    this.ap.others = this.player ? [this.player] : null;
     this.ap.blocked = this.blocked;
     this.target = target;
     this.state = 'race';
